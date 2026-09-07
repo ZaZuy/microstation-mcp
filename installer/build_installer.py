@@ -17,7 +17,7 @@ BUILD_DIR = os.path.join(PROJECT_ROOT, "build_temp")
 
 def build_exe():
     print("=" * 60)
-    print("BẮT ĐẦU ĐÓNG GÓI VIGELA AI APP & BỘ CÀI ĐẶT")
+    print("BẮT ĐẦU ĐÓNG GÓI DUY NHẤT 1 FILE: VIGELA_AI_APP.EXE")
     print("=" * 60)
 
     py_exe = sys.executable
@@ -25,9 +25,8 @@ def build_exe():
         py_exe = py_exe[:-5] + ".exe"
 
     icon_path = os.path.join(PROJECT_ROOT, "assets", "vigela_icon.ico")
-    launcher_py = os.path.join(PROJECT_ROOT, "launcher", "ai_launcher.py")
 
-    # Xóa thư mục build cũ
+    # Xóa sạch thư mục build & dist cũ
     if os.path.exists(DIST_DIR):
         shutil.rmtree(DIST_DIR, ignore_errors=True)
     if os.path.exists(BUILD_DIR):
@@ -36,9 +35,8 @@ def build_exe():
     os.makedirs(DIST_DIR, exist_ok=True)
     os.makedirs(BUILD_DIR, exist_ok=True)
 
-    # 1. Đóng gói ứng dụng chính: Vigela_AI_App.exe
-    print("\n--- 1/2. Đang đóng gói Vigela_AI_App.exe ---")
-    app_cmd = [
+    # Đóng gói duy nhất 1 file cài đặt trọn gói: Vigela_AI_App.exe
+    cmd = [
         py_exe,
         "-m", "PyInstaller",
         "--noconsole",
@@ -52,47 +50,25 @@ def build_exe():
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'src')};src",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'launcher')};launcher",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'assets')};assets",
-        launcher_py
-    ]
-    res_app = subprocess.run(app_cmd, cwd=PROJECT_ROOT)
-
-    # 2. Đóng gói bộ cài đặt: Setup_Vigela_AI.exe
-    print("\n--- 2/2. Đang đóng gói bộ cài đặt Setup_Vigela_AI.exe ---")
-    setup_cmd = [
-        py_exe,
-        "-m", "PyInstaller",
-        "--noconsole",
-        "--onefile",
-        "--name", "Setup_Vigela_AI",
-        "--distpath", DIST_DIR,
-        "--workpath", BUILD_DIR,
-        "--specpath", BUILD_DIR,
-        "--clean",
-        "--icon", icon_path,
-        "--add-data", f"{os.path.join(PROJECT_ROOT, 'src')};src",
-        "--add-data", f"{os.path.join(PROJECT_ROOT, 'launcher')};launcher",
-        "--add-data", f"{os.path.join(PROJECT_ROOT, 'assets')};assets",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'requirements.txt')};.",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'pyproject.toml')};.",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'README.md')};.",
         SETUP_GUI
     ]
-    res_setup = subprocess.run(setup_cmd, cwd=PROJECT_ROOT)
 
-    if res_app.returncode == 0 or res_setup.returncode == 0:
+    print("Đang biên dịch file duy nhất bằng PyInstaller...")
+    res = subprocess.run(cmd, cwd=PROJECT_ROOT)
+
+    if res.returncode == 0:
+        exe_path = os.path.join(DIST_DIR, "Vigela_AI_App.exe")
         print("\n" + "=" * 60)
-        print("ĐÓNG GÓI HOÀN TẤT THÀNH CÔNG!")
-        if os.path.exists(os.path.join(DIST_DIR, "Vigela_AI_App.exe")):
-            print(f"- Ứng dụng chạy trực tiếp: {os.path.join(DIST_DIR, 'Vigela_AI_App.exe')}")
-        if os.path.exists(os.path.join(DIST_DIR, "Setup_Vigela_AI.exe")):
-            print(f"- Bộ cài đặt 1-Click: {os.path.join(DIST_DIR, 'Setup_Vigela_AI.exe')}")
-            # Sao chép thêm tên cũ để đảm bảo tương thích
-            shutil.copy2(os.path.join(DIST_DIR, "Setup_Vigela_AI.exe"), os.path.join(DIST_DIR, "Setup_MicroStation_AI.exe"))
+        print("ĐÓNG GÓI HOÀN TẤT!")
+        print(f"File cài đặt duy nhất: {exe_path}")
         print("=" * 60)
         shutil.rmtree(BUILD_DIR, ignore_errors=True)
         return True
     else:
-        print("Đóng gói thất bại!")
+        print("Đóng gói thất bại! Mã lỗi:", res.returncode)
         return False
 
 
