@@ -24,10 +24,67 @@ from tkinter import messagebox
 LAUNCHER_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(LAUNCHER_DIR)
 
-# Đảm bảo dùng python.exe thay vì pythonw.exe cho MCP stdio
-PYTHON_EXE = sys.executable
-if PYTHON_EXE.lower().endswith("pythonw.exe"):
-    PYTHON_EXE = PYTHON_EXE[:-5] + ".exe"
+def find_python_executable():
+    """Tìm python.exe thực sự của hệ thống trên máy."""
+    if not getattr(sys, "frozen", False):
+        exe = sys.executable
+        if exe.lower().endswith("pythonw.exe"):
+            exe = exe[:-5] + ".exe"
+        if os.path.exists(exe) and "vigela" not in os.path.basename(exe).lower() and "setup" not in os.path.basename(exe).lower():
+            return exe
+
+    try:
+        out = subprocess.check_output(["py", "-3", "-c", "import sys; print(sys.executable)"], text=True, timeout=3).strip()
+        if os.path.exists(out) and "windowsapps" not in out.lower():
+            return out
+    except Exception:
+        pass
+
+    try:
+        import winreg
+        for hive in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
+            try:
+                with winreg.OpenKey(hive, r"Software\Python\PythonCore") as root_key:
+                    num_subkeys = winreg.QueryInfoKey(root_key)[0]
+                    for i in range(num_subkeys):
+                        ver_name = winreg.EnumKey(root_key, i)
+                        try:
+                            with winreg.OpenKey(root_key, rf"{ver_name}\InstallPath") as p_key:
+                                path_val, _ = winreg.QueryValueEx(p_key, "ExecutablePath")
+                                if os.path.exists(path_val) and "windowsapps" not in path_val.lower():
+                                    return path_val
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    import glob
+    user_prof = os.environ.get("USERPROFILE", "")
+    candidates = glob.glob(os.path.join(user_prof, "AppData", "Local", "Programs", "Python", "Python*", "python.exe"))
+    candidates += glob.glob(r"C:\Program Files\Python*\python.exe")
+    candidates += glob.glob(r"C:\Python*\python.exe")
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+
+    try:
+        import shutil
+        p = shutil.which("python.exe")
+        if p and "windowsapps" not in p.lower() and os.path.getsize(p) > 0:
+            return p
+        out = subprocess.check_output(["where", "python"], text=True).strip().splitlines()
+        for item in out:
+            if "windowsapps" not in item.lower() and os.path.exists(item) and os.path.getsize(item) > 0:
+                return item
+    except Exception:
+        pass
+
+    return "python.exe"
+
+
+PYTHON_EXE = find_python_executable()
 
 MAIN_PY = os.path.join(PROJECT_ROOT, "src", "main.py")
 
@@ -258,9 +315,29 @@ def launch_app(app_info):
 class LauncherGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("MicroStation V8i - AI App Launcher")
+        self.root.title("Vigela AI App")
         self.root.geometry("700x720")
         self.root.resizable(False, False)
+
+        # Gán icon Vigela cho cửa sổ
+        icon_ico = os.path.join(LAUNCHER_DIR, "vigela_icon.ico")
+        if not os.path.exists(icon_ico):
+            icon_ico = os.path.join(PROJECT_ROOT, "assets", "vigela_icon.ico")
+        if os.path.exists(icon_ico):
+            try:
+                self.root.iconbitmap(icon_ico)
+            except Exception:
+                pass
+
+        icon_png = os.path.join(LAUNCHER_DIR, "vigela_icon.png")
+        if not os.path.exists(icon_png):
+            icon_png = os.path.join(PROJECT_ROOT, "assets", "vigela_logo.png")
+        if os.path.exists(icon_png):
+            try:
+                self.app_icon = tk.PhotoImage(file=icon_png)
+                self.root.iconphoto(False, self.app_icon)
+            except Exception:
+                pass
 
         # Bảng màu Dark Mode hiện đại
         self.bg_color = "#181825"
@@ -333,9 +410,23 @@ class LauncherGUI:
         title_row = tk.Frame(title_box, bg=self.bg_color)
         title_row.pack(anchor="w")
 
+        # Logo Vigela trên Header
+        logo_png = os.path.join(LAUNCHER_DIR, "vigela_icon.png")
+        if not os.path.exists(logo_png):
+            logo_png = os.path.join(PROJECT_ROOT, "assets", "vigela_logo.png")
+        if os.path.exists(logo_png):
+            try:
+                from PIL import Image, ImageTk
+                img = Image.open(logo_png).resize((32, 32), Image.Resampling.LANCZOS)
+                self.header_logo = ImageTk.PhotoImage(img)
+                logo_lbl = tk.Label(title_row, image=self.header_logo, bg=self.bg_color)
+                logo_lbl.pack(side="left", padx=(0, 10))
+            except Exception:
+                pass
+
         title = tk.Label(
             title_row,
-            text="🚀 AI CAD Launcher",
+            text="Vigela AI App",
             font=("Segoe UI", 18, "bold"),
             fg=self.text_color,
             bg=self.bg_color
@@ -355,7 +446,7 @@ class LauncherGUI:
 
         subtitle = tk.Label(
             title_box,
-            text="Tự động phát hiện, kết nối & cập nhật các ứng dụng AI điều khiển MicroStation",
+            text="Bộ điều khiển thông minh kết nối AI & MicroStation V8i CAD",
             font=("Segoe UI", 9),
             fg=self.text_muted,
             bg=self.bg_color

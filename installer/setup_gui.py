@@ -90,9 +90,21 @@ def find_python_executable():
 class InstallerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Cài Đặt MicroStation V8i - AI CAD Bridge")
+        self.root.title("Cài Đặt Vigela AI App")
         self.root.geometry("640x520")
         self.root.resizable(False, False)
+
+        # Gán icon Vigela
+        for icon_candidate in [
+            os.path.join(SOURCE_DIR, "assets", "vigela_icon.ico"),
+            os.path.join(SOURCE_DIR, "launcher", "vigela_icon.ico"),
+        ]:
+            if os.path.exists(icon_candidate):
+                try:
+                    self.root.iconbitmap(icon_candidate)
+                    break
+                except Exception:
+                    pass
 
         # Màu sắc hiện đại
         self.bg_color = "#181825"
@@ -142,7 +154,7 @@ class InstallerGUI:
 
         title = tk.Label(
             header,
-            text="📐 Cài Đặt MicroStation AI CAD Bridge",
+            text="✨ Cài Đặt Vigela AI App",
             font=("Segoe UI", 16, "bold"),
             fg=self.text_color,
             bg=self.bg_color
@@ -151,7 +163,7 @@ class InstallerGUI:
 
         subtitle = tk.Label(
             header,
-            text="Hệ thống 59 công cụ điều khiển CAD qua AI (Claude Desktop, Antigravity, Cursor...)",
+            text="Trình cài đặt tự động 1-Click tích hợp MicroStation V8i với Claude & Antigravity",
             font=("Segoe UI", 9),
             fg=self.text_muted,
             bg=self.bg_color
@@ -242,7 +254,7 @@ class InstallerGUI:
 
             # Bước 2: Sao chép mã nguồn
             self.update_status("2/5. Đang sao chép các tệp chương trình...", 35)
-            for item in ["src", "launcher", "docs"]:
+            for item in ["src", "launcher", "docs", "assets"]:
                 s = os.path.join(SOURCE_DIR, item)
                 d = os.path.join(target_dir, item)
                 if os.path.exists(s):
@@ -314,7 +326,15 @@ class InstallerGUI:
                     import win32com.client
                     wsh = win32com.client.Dispatch("WScript.Shell")
                     desktop = wsh.SpecialFolders("Desktop")
-                    lnk_path = os.path.join(desktop, "MicroStation AI Launcher.lnk")
+                    lnk_path = os.path.join(desktop, "Vigela AI App.lnk")
+
+                    # Xóa shortcut cũ nếu có
+                    old_lnk = os.path.join(desktop, "MicroStation AI Launcher.lnk")
+                    if os.path.exists(old_lnk):
+                        try:
+                            os.remove(old_lnk)
+                        except Exception:
+                            pass
 
                     pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
                     exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
@@ -324,10 +344,13 @@ class InstallerGUI:
                     sc.TargetPath = exec_bin
                     sc.Arguments = f'"{launcher_script}"'
                     sc.WorkingDirectory = target_dir
-                    sc.Description = "MicroStation V8i AI CAD Launcher"
-                    mstn_exe = r"C:\Program Files (x86)\Bentley\MicroStation V8i (SELECTseries)\MicroStation\ustation.exe"
-                    if os.path.exists(mstn_exe):
-                        sc.IconLocation = f"{mstn_exe}, 0"
+                    sc.Description = "Vigela AI App - MicroStation V8i CAD Assistant"
+                    
+                    icon_path = os.path.join(target_dir, "launcher", "vigela_icon.ico")
+                    if not os.path.exists(icon_path):
+                        icon_path = os.path.join(target_dir, "assets", "vigela_icon.ico")
+                    if os.path.exists(icon_path):
+                        sc.IconLocation = f"{icon_path}, 0"
                     sc.Save()
                 except Exception:
                     pass
@@ -343,10 +366,10 @@ class InstallerGUI:
     def finish_success(self, target_dir):
         if messagebox.askyesno(
             "Cài Đặt Thành Công",
-            "Đã cài đặt hoàn tất MicroStation AI CAD Bridge!\n\n"
-            "- Đã tạo Shortcut 'MicroStation AI Launcher' ra Desktop.\n"
-            "- Đã cấu hình kết nối vào Claude Desktop & Antigravity.\n\n"
-            "Bạn có muốn mở ngay AI Launcher không?"
+            "Đã cài đặt hoàn tất Vigela AI App!\n\n"
+            "- Đã tạo biểu tượng 'Vigela AI App' ra màn hình Desktop.\n"
+            "- Đã cấu hình kết nối MCP vào Claude Desktop & Antigravity.\n\n"
+            "Bạn có muốn mở ngay Vigela AI App không?"
         ):
             launcher_py = os.path.join(target_dir, "launcher", "ai_launcher.py")
             py_exe = find_python_executable()
