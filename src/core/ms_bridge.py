@@ -1,0 +1,173 @@
+"""
+src/core/ms_bridge.py
+Module cốt lõi quản lý kết nối COM / ActiveX Automation tới MicroStation V8i.
+"""
+
+import math
+from typing import List, Optional, Tuple, Any
+import pythoncom
+import win32com.client
+from pywintypes import com_error
+
+
+class MicroStationBridge:
+    """
+    Quản lý kết nối COM và các tiện ích thao tác với MicroStation V8i.
+    Đảm bảo an toàn luồng với CoInitialize trên các worker thread của MCP.
+    """
+
+    def __init__(self):
+        self._app = None
+
+    def get_app(self, require_file: bool = True):
+        """
+        Lấy đối tượng MicroStationDGN.Application đang chạy.
+        :param require_file: Nếu True, kiểm tra xem đã mở file DGN chưa. Nếu False, chỉ lấy đối tượng App.
+        """
+        # Bắt buộc phải CoInitialize trên mỗi thread worker của MCP/AnyIO
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
+
+        app = None
+        # Cách 1: Thử GetActiveObject
+        try:
+            app = win32com.client.GetActiveObject("MicroStationDGN.Application")
+        except Exception:
+            pass
+
+        # Cách 2: Thử Dispatch (kết nối tới instance đang chạy)
+        if not app:
+            try:
+                app = win32com.client.Dispatch("MicroStationDGN.Application")
+            except Exception as ex:
+                raise RuntimeError(
+                    "Không thể kết nối tới MicroStation V8i! "
+                    "Vui lòng đảm bảo phần mềm MicroStation V8i đang mở.\n"
+                    f"Chi tiết: {ex}"
+                )
+
+        if not app:
+            raise RuntimeError("Không tìm thấy tiến trình MicroStation V8i đang hoạt động!")
+
+        self._app = app
+
+        # Kiểm tra xem đã mở file DGN chưa (nếu yêu cầu)
+        if require_file:
+            try:
+                if not app.HasActiveDesignFile:
+                    raise RuntimeError(
+                        "MicroStation V8i đang mở nhưng bạn CHƯA MỞ FILE BẢN VẼ nào!\n"
+                        "👉 Vui lòng mở một file (.dgn) hoặc tạo file mới trong MicroStation V8i trước khi thao tác."
+                    )
+            except com_error as ce:
+                raise RuntimeError(f"Lỗi truy cập file MicroStation: {ce}")
+
+        return app
+
+    def get_active_model(self):
+        """Lấy ActiveModelReference của bản vẽ hiện tại."""
+        app = self.get_app(require_file=True)
+        if not app.HasActiveModelReference:
+            raise RuntimeError("Không tìm thấy ActiveModelReference trong file DGN hiện tại!")
+        return app.ActiveModelReference
+
+    def get_active_file(self):
+        """Lấy ActiveDesignFile hiện tại."""
+        app = self.get_app(require_file=True)
+        return app.ActiveDesignFile
+
+    def create_point(self, x: float, y: float, z: float = 0.0):
+        """Tạo đối tượng Point3d từ tọa độ (X, Y, Z)."""
+        app = self.get_app(require_file=False)
+        return app.Point3dFromXYZ(float(x), float(y), float(z))
+
+    def create_rotation_matrix(self, angle_degrees: float):
+        """Tạo ma trận quay 2D quanh trục Z theo góc độ (degrees)."""
+        app = self.get_app(require_file=False)
+        if abs(angle_degrees) < 1e-6:
+            return app.Matrix3dIdentity()
+
+        angle_radians = math.radians(angle_degrees)
+        return app.Matrix3dFromAxisAndRotationAngle(2, angle_radians)
+
+    @staticmethod
+    def unwrap(element: Any):
+        """Mở gói nếu COM trả về tuple đối tượng."""
+        if isinstance(element, (tuple, list)):
+            return element[0]
+        return element
+
+    def apply_symbology(
+        self,
+        element: Any,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+        weight: Optional[int] = None,
+        style: Optional[int] = None,
+    ):
+        """
+        Gán thuộc tính Level, Color, Weight, LineStyle cho phần tử trước khi thêm vào Model.
+        """
+        element = self.unwrap(element)
+        dgn_file = self.get_active_file()
+
+        if level:
+            try:
+                lvl_obj = dgn_file.Levels.Find(level)
+                if lvl_obj:
+                    element.Level = lvl_obj
+                else:
+                    new_lvl = dgn_file.AddNewLevel(level)
+                    dgn_file.RewriteLevels()
+                    element.Level = new_lvl
+            except Exception:
+                pass
+
+        if color is not None:
+            element.Color = int(color)
+
+        if weight is not None:
+            element.LineWeight = int(weight)
+
+        if style is not None:
+            try:
+                line_style_obj = dgn_file.LineStyles.Item(int(style))
+                element.LineStyle = line_style_obj
+            except Exception:
+                pass
+
+        return element
+
+    def add_element(self, element: Any) -> str:
+        """Thêm phần tử vào ActiveModelReference và vẽ lại."""
+        element = self.unwrap(element)
+        model = self.get_active_model()
+        model.AddElement(element)
+        try:
+            element.Redraw()
+        except Exception:
+            pass
+        return "OK"
+
+    def find_element_by_id(self, element_id: str):
+        """Tìm đối tượng Element trong ActiveModelReference theo ID."""
+        model = self.get_active_model()
+        cache = model.GraphicalElementCache
+        target_id = str(element_id).strip()
+        for idx in range(1, cache.Count + 1):
+            try:
+                el = cache.GetElement(idx)
+                if not el:
+                    continue
+                cur_id = str(getattr(el, "ID64", getattr(el, "ID", "")))
+                if cur_id == target_id:
+                    return el
+            except Exception:
+                continue
+        return None
+
+
+# Singleton instance dùng chung toàn hệ thống
+bridge = MicroStationBridge()
