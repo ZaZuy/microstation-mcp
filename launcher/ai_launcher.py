@@ -275,6 +275,11 @@ class LauncherGUI:
 
         self.root.configure(bg=self.bg_color)
 
+        # Ép cửa sổ luôn bật lên hàng đầu (Foreground) khi mở thay vì bị ẩn dưới taskbar
+        self.force_bring_to_front()
+        self.root.after(100, self.force_bring_to_front)
+        self.root.after(400, self.force_bring_to_front)
+
         # Đọc cấu hình phiên bản
         self.version_cfg = get_local_config()
         self.current_version = self.version_cfg.get("version", "1.0.0")
@@ -295,6 +300,26 @@ class LauncherGUI:
 
         # Chạy kiểm tra cập nhật trong luồng nền
         threading.Thread(target=self.bg_check_updates, daemon=True).start()
+
+    def force_bring_to_front(self):
+        """Bật cửa sổ lên trên cùng (Foreground) và kích hoạt tiêu điểm ngay khi mở."""
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.focus_force()
+            # Nhả thuộc tính topmost sau 400ms để người dùng vẫn thao tác app khác bình thường
+            self.root.after(400, lambda: self.root.attributes("-topmost", False))
+
+            if sys.platform == "win32":
+                import ctypes
+                user32 = ctypes.windll.user32
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE = 9
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+        except Exception:
+            pass
 
     def build_ui(self):
         # Header Frame

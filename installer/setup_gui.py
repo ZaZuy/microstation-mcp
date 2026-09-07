@@ -109,7 +109,31 @@ class InstallerGUI:
         self.config_antigravity_var = tk.BooleanVar(value=True)
         self.install_deps_var = tk.BooleanVar(value=True)
 
+        # Ép cửa sổ luôn nổi lên trên cùng màn hình khi mở
+        self.force_bring_to_front()
+        self.root.after(100, self.force_bring_to_front)
+        self.root.after(400, self.force_bring_to_front)
+
         self.build_ui()
+
+    def force_bring_to_front(self):
+        """Bật cửa sổ lên hàng đầu (Foreground) và kích hoạt tiêu điểm ngay khi mở."""
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.focus_force()
+            self.root.after(400, lambda: self.root.attributes("-topmost", False))
+
+            if sys.platform == "win32":
+                import ctypes
+                user32 = ctypes.windll.user32
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+                user32.ShowWindow(hwnd, 9)
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+        except Exception:
+            pass
 
     def build_ui(self):
         # Header
