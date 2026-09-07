@@ -33,7 +33,7 @@ def build_exe():
     os.makedirs(DIST_DIR, exist_ok=True)
     os.makedirs(BUILD_DIR, exist_ok=True)
 
-    # Lệnh PyInstaller
+    # Lệnh PyInstaller đóng gói kèm toàn bộ mã nguồn vào .exe
     cmd = [
         py_exe,
         "-m",
@@ -45,6 +45,11 @@ def build_exe():
         "--workpath", BUILD_DIR,
         "--specpath", BUILD_DIR,
         "--clean",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'src')};src",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'launcher')};launcher",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'requirements.txt')};.",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'pyproject.toml')};.",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'README.md')};.",
         SETUP_GUI
     ]
 

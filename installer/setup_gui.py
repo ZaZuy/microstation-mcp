@@ -18,26 +18,73 @@ DEFAULT_INSTALL_DIR = os.path.join(
     "MicroStation-AI-CAD"
 )
 
-# Thư mục gốc chứa source code
-SOURCE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Thư mục gốc chứa source code (hỗ trợ cả PyInstaller một file)
+SOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def find_python_executable():
-    """Tìm python.exe trên máy."""
-    exe = sys.executable
-    if exe.lower().endswith("pythonw.exe"):
-        exe = exe[:-5] + ".exe"
-    if os.path.exists(exe):
-        return exe
-    # Tìm qua where python
+    """Tìm python.exe thực sự của hệ thống trên máy (tránh trỏ nhầm vào file Setup exe)."""
+    # Nếu đang chạy mã nguồn trực tiếp (không phải bị đóng băng bởi PyInstaller)
+    if not getattr(sys, "frozen", False):
+        exe = sys.executable
+        if exe.lower().endswith("pythonw.exe"):
+            exe = exe[:-5] + ".exe"
+        if os.path.exists(exe) and "setup" not in os.path.basename(exe).lower():
+            return exe
+
+    # 1. Thử qua py.exe launcher của Windows
     try:
-        out = subprocess.check_output(["where", "python"], text=True).strip().splitlines()
-        for p in out:
-            if "windowsapps" not in p.lower() and os.path.exists(p):
-                return p
+        out = subprocess.check_output(["py", "-3", "-c", "import sys; print(sys.executable)"], text=True, timeout=3).strip()
+        if os.path.exists(out) and "windowsapps" not in out.lower():
+            return out
     except Exception:
         pass
-    return "python"
+
+    # 2. Quét Registry Windows
+    try:
+        import winreg
+        for hive in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
+            try:
+                with winreg.OpenKey(hive, r"Software\Python\PythonCore") as root_key:
+                    num_subkeys = winreg.QueryInfoKey(root_key)[0]
+                    for i in range(num_subkeys):
+                        ver_name = winreg.EnumKey(root_key, i)
+                        try:
+                            with winreg.OpenKey(root_key, rf"{ver_name}\InstallPath") as p_key:
+                                path_val, _ = winreg.QueryValueEx(p_key, "ExecutablePath")
+                                if os.path.exists(path_val) and "windowsapps" not in path_val.lower():
+                                    return path_val
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 3. Quét các thư mục cài đặt tiêu chuẩn
+    import glob
+    user_prof = os.environ.get("USERPROFILE", "")
+    candidates = glob.glob(os.path.join(user_prof, "AppData", "Local", "Programs", "Python", "Python*", "python.exe"))
+    candidates += glob.glob(r"C:\Program Files\Python*\python.exe")
+    candidates += glob.glob(r"C:\Python*\python.exe")
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+
+    # 4. Tìm qua where python / shutil.which
+    try:
+        import shutil
+        p = shutil.which("python.exe")
+        if p and "windowsapps" not in p.lower() and os.path.getsize(p) > 0:
+            return p
+        out = subprocess.check_output(["where", "python"], text=True).strip().splitlines()
+        for item in out:
+            if "windowsapps" not in item.lower() and os.path.exists(item) and os.path.getsize(item) > 0:
+                return item
+    except Exception:
+        pass
+
+    return "python.exe"
 
 
 class InstallerGUI:
@@ -246,10 +293,11 @@ class InstallerGUI:
                     lnk_path = os.path.join(desktop, "MicroStation AI Launcher.lnk")
 
                     pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
+                    exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
                     launcher_script = os.path.join(target_dir, "launcher", "ai_launcher.py")
 
                     sc = wsh.CreateShortcut(lnk_path)
-                    sc.TargetPath = pyw_exe
+                    sc.TargetPath = exec_bin
                     sc.Arguments = f'"{launcher_script}"'
                     sc.WorkingDirectory = target_dir
                     sc.Description = "MicroStation V8i AI CAD Launcher"
@@ -277,7 +325,10 @@ class InstallerGUI:
             "Bạn có muốn mở ngay AI Launcher không?"
         ):
             launcher_py = os.path.join(target_dir, "launcher", "ai_launcher.py")
-            subprocess.Popen([find_python_executable().replace("python.exe", "pythonw.exe"), launcher_py])
+            py_exe = find_python_executable()
+            pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
+            exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
+            subprocess.Popen([exec_bin, launcher_py], cwd=target_dir)
         self.root.destroy()
 
 
