@@ -7,15 +7,15 @@ SERVER_NAME = "microstation-v8i"
 SERVER_VERSION = "1.1.0"
 
 SERVER_INSTRUCTIONS = """
-MicroStation V8i MCP Server - Hệ thống điều khiển CAD chuyên nghiệp toàn diện cho AI (59 Tools).
+MicroStation V8i MCP Server - Hệ thống điều khiển CAD chuyên nghiệp toàn diện cho AI (62 Tools).
 
 Bao gồm 10 nhóm công cụ:
-1. HÌNH HỌC (10 tools):
-   - draw_line, draw_linestring, draw_shape, draw_rectangle, draw_circle, draw_arc, draw_ellipse, draw_point, draw_bspline_curve, place_cell.
+1. HÌNH HỌC (12 tools):
+   - draw_line, draw_linestring, draw_shape, draw_rectangle, draw_circle, draw_arc, draw_ellipse, draw_point, draw_bspline_curve, place_cell, create_region, flood_fill_region.
 2. ĐO ĐẠC & GHI KÍCH THƯỚC (5 tools):
    - measure_distance, measure_area, dimension_linear, dimension_aligned, dimension_radius.
-3. CHỈNH SỬA & BIẾN ĐỔI HÌNH HỌC (7 tools):
-   - move_element, copy_element, rotate_element, scale_element, mirror_element, change_element_symbology, drop_element.
+3. CHỈNH SỬA & BIẾN ĐỔI HÌNH HỌC (8 tools):
+   - move_element, copy_element, rotate_element, scale_element, mirror_element, fill_element, change_element_symbology, drop_element.
 4. VĂN BẢN & TÌM KIẾM (4 tools):
    - place_text, place_text_node, find_text, replace_text.
 5. KHUNG NHÌN & TRỰC QUAN (7 tools):

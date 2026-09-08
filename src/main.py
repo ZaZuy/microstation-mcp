@@ -34,6 +34,11 @@ from src.transports.sse import run_sse
 def main():
     parser = argparse.ArgumentParser(description="MicroStation V8i MCP Server")
     parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Chạy ở chế độ MCP Server",
+    )
+    parser.add_argument(
         "--transport",
         choices=["stdio", "sse"],
         default="stdio",

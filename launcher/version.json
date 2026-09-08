@@ -1,6 +1,6 @@
 {
-  "version": "1.0.1",
+  "version": "1.1.0",
   "github_repo": "ZaZuy/microstation-mcp",
   "branch": "main",
-  "release_notes": "Phiên bản khởi tạo tích hợp 59 công cụ MicroStation V8i và AI App Launcher."
+  "release_notes": "Tích hợp 62 công cụ MicroStation V8i (bổ sung create_region, fill_element) và AI App Launcher."
 }

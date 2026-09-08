@@ -419,3 +419,163 @@ def register_drawing_tools(mcp):
             return f"Đã chèn cell '{cell_name}' tại ({x}, {y}) với tỉ lệ {scale}"
         except Exception as ex:
             return f"Không thể chèn cell '{cell_name}'. Vui lòng kiểm tra xem cell library đã được đính kèm vào MicroStation chưa. Chi tiết: {ex}"
+
+    @mcp.tool
+    def create_region(
+        method: str = "flood",
+        seed_x: Optional[float] = None,
+        seed_y: Optional[float] = None,
+        element_ids: Optional[List[str]] = None,
+        fill_type: str = "opaque",
+        fill_color: int = 4,
+        outline_color: Optional[int] = None,
+        level: Optional[str] = None,
+        keep_original: bool = True,
+        auto_enable_view_fill: bool = True,
+    ) -> str:
+        """
+        Tự động tạo vùng kín và đổ màu nền (Create Region) toàn diện trong MicroStation V8i.
+        Hỗ trợ 4 phương pháp không gian: Flood (nhận diện vùng từ điểm bên trong), Union (hợp nhất các vùng),
+        Intersection (giao nhau) và Difference (trừ vùng).
+
+        :param method: Phương pháp tạo vùng ('flood', 'union', 'intersection', 'difference')
+        :param seed_x: Tọa độ X điểm bên trong vùng (bắt buộc cho method='flood')
+        :param seed_y: Tọa độ Y điểm bên trong vùng (bắt buộc cho method='flood')
+        :param element_ids: Danh sách ID các đối tượng cần tính toán (cho method='union', 'intersection', 'difference')
+        :param fill_type: Chế độ tô màu ('opaque' - tô đặc kín, 'outline' - tô đặc có viền, 'none' - rỗng)
+        :param fill_color: Chỉ số màu nền tô (0-255, mặc định 4 là màu vàng)
+        :param outline_color: Chỉ số màu đường viền bao quanh (0-255, tùy chọn)
+        :param level: Tên Level đặt đối tượng mới (mặc định giữ nguyên level active)
+        :param keep_original: True nếu muốn giữ lại các đoạn ranh giới gốc
+        :param auto_enable_view_fill: True để tự động bật thuộc tính hiển thị Fill trên các View của MicroStation
+        """
+        app = bridge.get_app()
+        model = bridge.get_active_model()
+        cache = model.GraphicalElementCache
+        count_before = cache.Count
+
+        if auto_enable_view_fill:
+            try:
+                app.CadInputQueue.SendKeyin(
+                    "vba execute Dim vi As Integer: For vi = 1 To 8: "
+                    "If ActiveDesignFile.Views(vi).IsOpen Then "
+                    "ActiveDesignFile.Views(vi).DisplaysFill = True: "
+                    "ActiveDesignFile.Views(vi).Redraw: "
+                    "End If: Next"
+                )
+                for vi in range(4):
+                    app.CadInputQueue.SendKeyin(f"MDL KEYIN BENTLEY.VIEWATTRIBUTESDIALOG,VAD VIEWATTRIBUTESDIALOG SETATTRIBUTE {vi} Fill True")
+            except Exception:
+                pass
+
+        ft_code = 1 if fill_type.lower() in ("opaque", "solid") else (2 if fill_type.lower() == "outline" else 0)
+
+        # Cấu hình Keep Original cho Create Region
+        try:
+            ko_val = 1 if keep_original else 0
+            app.CadInputQueue.SendKeyin(f'vba execute SetCExpressionValue "tcb->msToolSettings.createRegion.keepOriginal", {ko_val}, "REGION"')
+        except Exception:
+            pass
+
+        # Cấu hình thuộc tính Active cho vùng mới tạo
+        if level:
+            app.CadInputQueue.SendKeyin(f"lv={level}")
+        if outline_color is not None:
+            app.CadInputQueue.SendKeyin(f"co={outline_color}")
+
+        try:
+            app.CadInputQueue.SendKeyin(f"vba execute ActiveSettings.FillColor = {int(fill_color)}: ActiveSettings.FillMode = {ft_code}")
+        except Exception:
+            app.CadInputQueue.SendKeyin(f"set active fillcolor {fill_color}")
+            if ft_code > 0:
+                app.CadInputQueue.SendKeyin("set active fill on")
+
+        m = str(method).lower().strip()
+        if m == "flood":
+            if seed_x is None or seed_y is None:
+                return "Lỗi: Phương pháp 'flood' yêu cầu cung cấp tọa độ seed_x và seed_y bên trong vùng!"
+            app.CadInputQueue.SendKeyin("create region flood")
+            pt = bridge.create_point(seed_x, seed_y, 0.0)
+            app.CadInputQueue.SendDataPoint(pt, 1)
+            app.CadInputQueue.SendDataPoint(pt, 1)
+            app.CadInputQueue.SendReset()
+        elif m in ("union", "intersection", "difference"):
+            if not element_ids or len(element_ids) < 2:
+                return f"Lỗi: Phương pháp '{method}' yêu cầu danh sách element_ids chứa tối thiểu 2 ID phần tử!"
+            app.CadInputQueue.SendKeyin(f"create region {m}")
+            last_pt = None
+            for eid in element_ids:
+                el = bridge.find_element_by_id(eid)
+                if el:
+                    rng = el.Range
+                    last_pt = bridge.create_point((rng.Low.X + rng.High.X) / 2.0, (rng.Low.Y + rng.High.Y) / 2.0, 0.0)
+                    app.CadInputQueue.SendDataPoint(last_pt, 1)
+            if last_pt:
+                app.CadInputQueue.SendDataPoint(last_pt, 1)
+            app.CadInputQueue.SendReset()
+        else:
+            return f"Lỗi: Phương pháp '{method}' không hợp lệ! Vui lòng chọn trong: 'flood', 'union', 'intersection', 'difference'."
+
+        count_after = cache.Count
+        new_el = None
+        if count_after > count_before:
+            try:
+                new_el = cache.GetElement(count_after)
+            except Exception:
+                pass
+
+        if new_el:
+            new_id = str(getattr(new_el, "ID64", getattr(new_el, "ID", "")))
+            if new_id:
+                try:
+                    outline_cmd = f"oEl.Color = {int(outline_color)}: " if outline_color is not None else ""
+                    app.CadInputQueue.SendKeyin(
+                        f"vba execute Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({new_id})): "
+                        f"If oEl.IsClosedElement Then "
+                        f"oEl.AsClosedElement.FillMode = {ft_code}: "
+                        f"oEl.AsClosedElement.FillColor = {int(fill_color)}: "
+                        f"{outline_cmd}"
+                        f"oEl.Rewrite: oEl.Redraw: End If"
+                    )
+                except Exception:
+                    pass
+            try:
+                new_el.Redraw()
+            except Exception:
+                pass
+            return f"Đã tạo vùng ({m.upper()}) thành công! Đối tượng mới ID: {new_id}, màu tô nền: {fill_color} ({fill_type}), viền: {outline_color if outline_color is not None else 'Giữ nguyên'}."
+
+        return f"Đã gửi lệnh tạo vùng ({m.upper()}) với chế độ tô {fill_type} màu {fill_color}."
+
+    @mcp.tool
+    def flood_fill_region(
+        seed_x: float,
+        seed_y: float,
+        fill_color: int = 4,
+        fill_type: str = "opaque",
+        outline_color: Optional[int] = None,
+        level: Optional[str] = None,
+    ) -> str:
+        """
+        Tự động nhận diện đường bao khép kín xung quanh một điểm tọa độ hạt giống (Seed Point)
+        và đổ màu kín vào diện tích đó (tương đương công cụ Create Region Flood trong MicroStation).
+
+        :param seed_x: Tọa độ X điểm bên trong thửa đất / vùng cần đổ màu
+        :param seed_y: Tọa độ Y điểm bên trong thửa đất / vùng cần đổ màu
+        :param fill_color: Chỉ số màu tô (0-255, mặc định 4 là màu vàng)
+        :param fill_type: Chế độ tô ('opaque' - tô đặc kín, 'outline' - tô đặc có viền, 'none')
+        :param outline_color: Chỉ số màu đường viền (tùy chọn)
+        :param level: Tên Level đặt đối tượng Shape tô màu (mặc định theo level active)
+        """
+        return create_region(
+            method="flood",
+            seed_x=seed_x,
+            seed_y=seed_y,
+            fill_type=fill_type,
+            fill_color=fill_color,
+            outline_color=outline_color,
+            level=level,
+            auto_enable_view_fill=True,
+        )
+
+

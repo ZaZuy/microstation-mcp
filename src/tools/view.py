@@ -137,8 +137,45 @@ def register_view_tools(mcp):
         norm_path = os.path.abspath(output_path)
         os.makedirs(os.path.dirname(norm_path), exist_ok=True)
 
+        # Thử chụp trực tiếp từ HWND của View window qua Win32 GDI & PIL
         try:
-            # Lệnh save image của MicroStation V8i
+            import win32gui
+            import win32ui
+            import win32con
+            from PIL import Image
+
+            v = app.Views(view_number)
+            hwnd = int(getattr(v, "HWND", 0))
+            if hwnd:
+                left, top, right, bot = win32gui.GetClientRect(hwnd)
+                w = right - left
+                h = bot - top
+                if w > 0 and h > 0:
+                    hwnd_dc = win32gui.GetDC(hwnd)
+                    mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+                    save_dc = mfc_dc.CreateCompatibleDC()
+                    save_bitmap = win32ui.CreateBitmap()
+                    save_bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
+                    save_dc.SelectObject(save_bitmap)
+                    save_dc.BitBlt((0, 0), (w, h), mfc_dc, (0, 0), win32con.SRCCOPY)
+                    bmpinfo = save_bitmap.GetInfo()
+                    bmpstr = save_bitmap.GetBitmapBits(True)
+                    im = Image.frombuffer(
+                        "RGB",
+                        (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
+                        bmpstr, "raw", "BGRX", 0, 1
+                    )
+                    im.save(norm_path)
+                    win32gui.DeleteObject(save_bitmap.GetHandle())
+                    save_dc.DeleteDC()
+                    mfc_dc.DeleteDC()
+                    win32gui.ReleaseDC(hwnd, hwnd_dc)
+                    return f"Đã chụp khung nhìn View {view_number} thành công lưu tại: '{norm_path}'"
+        except Exception:
+            pass
+
+        # Fallback Key-in
+        try:
             cmd = f'save image "{norm_path}"'
             app.CadInputQueue.SendKeyin(cmd)
             return f"Đã gửi lệnh chụp màn hình View {view_number} lưu tại '{norm_path}'"

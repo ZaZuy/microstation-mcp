@@ -312,10 +312,20 @@ class InstallerGUI:
                         return dst
                 return None
 
-            launcher_exe_dst = extract_bundled_exe("Vigela_AI_Launcher.exe")
-            mcp_server_dst = extract_bundled_exe("Vigela_MCP_Server.exe")
+            # Khi là frozen exe: bản thân exe này chính là file cần cài
+            if getattr(sys, "frozen", False):
+                # sys.executable = chính file exe đang chạy (VD: Downloads\Vigela_AI_App.exe)
+                dst_exe = os.path.join(target_dir, "Vigela_AI_App.exe")
+                copy_file_safe(sys.executable, dst_exe)
+                launcher_exe_dst = dst_exe
+            else:
+                launcher_exe_dst = extract_bundled_exe("Vigela_AI_App.exe")
+                # Fallback: tìm tên cũ nếu có
+                if not launcher_exe_dst:
+                    launcher_exe_dst = extract_bundled_exe("Vigela_AI_Launcher.exe")
 
-            # Bước 3: Đồng bộ cấu hình MCP → trỏ vào Vigela_MCP_Server.exe
+
+            # Bước 3: Đồng bộ cấu hình MCP → trỏ vào Vigela_AI_App.exe --mcp
             self.update_status("3/4. Đang cấu hình kết nối MCP cho các ứng dụng AI...", 75)
 
             meipass_src = meipass if meipass else SOURCE_DIR
@@ -327,11 +337,23 @@ class InstallerGUI:
                 if os.path.exists(s):
                     shutil.copytree(s, d, dirs_exist_ok=True)
 
-            # Cấu hình MCP: dùng Vigela_MCP_Server.exe nếu có, fallback dùng Python
-            if mcp_server_dst and os.path.exists(mcp_server_dst):
+            # Cấu hình MCP: dùng Vigela_AI_App.exe --mcp nếu có, fallback dùng Python
+            unified_exe = os.path.join(target_dir, "Vigela_AI_App.exe")
+            if os.path.exists(unified_exe):
                 mcp_entry = {
-                    "command": mcp_server_dst,
-                    "args": [],
+                    "command": unified_exe,
+                    "args": ["--mcp"],
+                    "autoApprove": [
+                        "*"
+                    ],
+                }
+            elif launcher_exe_dst and os.path.exists(launcher_exe_dst):
+                mcp_entry = {
+                    "command": launcher_exe_dst,
+                    "args": ["--mcp"],
+                    "autoApprove": [
+                        "*"
+                    ],
                 }
             else:
                 # Fallback: dùng Python nếu có trên máy
@@ -340,6 +362,9 @@ class InstallerGUI:
                 mcp_entry = {
                     "command": py_exe,
                     "args": ["-X", "utf8", main_py],
+                    "autoApprove": [
+                        "*"
+                    ],
                 }
 
 
@@ -350,7 +375,7 @@ class InstallerGUI:
                     os.makedirs(gemini_dir, exist_ok=True)
                     d = {}
                     if os.path.exists(gemini_cfg):
-                        with open(gemini_cfg, "r", encoding="utf-8") as f:
+                        with open(gemini_cfg, "r", encoding="utf-8-sig") as f:
                             d = json.load(f)
                     if "mcpServers" not in d:
                         d["mcpServers"] = {}
@@ -367,7 +392,7 @@ class InstallerGUI:
                     os.makedirs(claude_dir, exist_ok=True)
                     d = {}
                     if os.path.exists(claude_cfg):
-                        with open(claude_cfg, "r", encoding="utf-8") as f:
+                        with open(claude_cfg, "r", encoding="utf-8-sig") as f:
                             d = json.load(f)
                     if "mcpServers" not in d:
                         d["mcpServers"] = {}
@@ -424,6 +449,16 @@ class InstallerGUI:
                     pass
 
             self.update_status("✓ Cài đặt hoàn tất thành công 100%!", 100)
+
+            # Tạo marker file để app_unified biết đã cài đặt xong
+            try:
+                marker_path = os.path.join(target_dir, ".installed")
+                with open(marker_path, "w", encoding="utf-8") as f:
+                    import datetime
+                    f.write(f"installed={datetime.datetime.now().isoformat()}\n")
+            except Exception:
+                pass
+
             self.root.after(0, lambda: self.finish_success(target_dir, launcher_exe_dst))
 
         except Exception as ex:

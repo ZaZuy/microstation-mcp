@@ -1,6 +1,6 @@
 # Hướng Dẫn Dành Cho AI Agent (AGENTS.md)
 
-Tài liệu này cung cấp các nguyên tắc hành vi, quy chuẩn kỹ thuật và chuỗi hành động tối ưu cho các AI Agent (Antigravity, Claude, Cursor, v.v.) khi kết nối và tương tác với MicroStation V8i thông qua MCP Server (59 công cụ).
+Tài liệu này cung cấp các nguyên tắc hành vi, quy chuẩn kỹ thuật và chuỗi hành động tối ưu cho các AI Agent (Antigravity, Claude, Cursor, v.v.) khi kết nối và tương tác với MicroStation V8i thông qua MCP Server (62 công cụ).
 
 ---
 
@@ -23,13 +23,13 @@ Tài liệu này cung cấp các nguyên tắc hành vi, quy chuẩn kỹ thuậ
 
 ---
 
-## 2. Bản Đồ 10 Nhóm Công Cụ (59 Tools)
+## 2. Bản Đồ 10 Nhóm Công Cụ (62 Tools)
 
 | Nhóm Tính Năng | Số lượng | Danh Sách Tools Tiêu Biểu |
 |---|---|---|
-| **1. Hình học** | 10 | `draw_line`, `draw_linestring`, `draw_shape`, `draw_rectangle`, `draw_circle`, `draw_arc`, `draw_ellipse`, `draw_point`, `draw_bspline_curve`, `place_cell` |
+| **1. Hình học** | 12 | `draw_line`, `draw_linestring`, `draw_shape`, `draw_rectangle`, `draw_circle`, `draw_arc`, `draw_ellipse`, `draw_point`, `draw_bspline_curve`, `place_cell`, `create_region`, `flood_fill_region` |
 | **2. Đo đạc & Kích thước** | 5 | `measure_distance`, `measure_area`, `dimension_linear`, `dimension_aligned`, `dimension_radius` |
-| **3. Chỉnh sửa & Biến đổi** | 7 | `move_element`, `copy_element`, `rotate_element`, `scale_element`, `mirror_element`, `change_element_symbology`, `drop_element` |
+| **3. Chỉnh sửa & Biến đổi** | 8 | `move_element`, `copy_element`, `rotate_element`, `scale_element`, `mirror_element`, `fill_element`, `change_element_symbology`, `drop_element` |
 | **4. Văn bản & Tìm kiếm** | 4 | `place_text`, `place_text_node`, `find_text`, `replace_text` |
 | **5. Khung nhìn (Views)** | 7 | `fit_view`, `zoom_window`, `pan_view`, `zoom_in`, `zoom_out`, `get_view_info`, `capture_view_image` |
 | **6. Quản lý File & Model** | 9 | `open_design_file`, `save_design_file`, `create_new_dgn`, `get_models`, `activate_model`, `create_model`, `get_references`, `attach_reference`, `detach_reference` |

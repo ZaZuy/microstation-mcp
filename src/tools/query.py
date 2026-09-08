@@ -187,8 +187,18 @@ def register_query_tools(mcp):
                 try:
                     item["type_name"] = "LineString"
                     lse = el.AsLineStringElement()
-                    v_raw = lse.GetVertices()
-                    item["points"] = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
+                    pts = []
+                    try:
+                        cnt = getattr(lse, "VerticesCount", 0)
+                        for i in range(1, cnt + 1):
+                            v = lse.Vertex(i)
+                            pts.append([round(v.X, 3), round(v.Y, 3)])
+                    except Exception:
+                        pass
+                    if not pts:
+                        v_raw = lse.GetVertices()
+                        pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
+                    item["points"] = pts
                     item["length"] = round(lse.Length, 3)
                 except Exception:
                     pass
@@ -289,11 +299,15 @@ def register_query_tools(mcp):
                 details["end_point"] = [round(le.EndPoint.X, 3), round(le.EndPoint.Y, 3)]
             except Exception:
                 pass
-        elif el_type in (6, 14):  # Shape / ComplexShape
+        elif el_type in (6, 14) or getattr(el, "IsClosedElement", False):  # Shape / ComplexShape
             try:
-                details["type_name"] = "Shape"
-                details["area"] = round(el.AsClosedElement().Area, 4)
-                details["perimeter"] = round(el.AsClosedElement().Perimeter, 4)
+                details["type_name"] = "Shape" if el_type == 6 else ("ComplexShape" if el_type == 14 else "ClosedElement")
+                closed = el.AsClosedElement()
+                details["area"] = round(closed.Area, 4)
+                details["perimeter"] = round(closed.Perimeter, 4)
+                details["fill_mode"] = getattr(closed, "FillMode", 0)
+                details["fill_color"] = getattr(closed, "FillColor", None)
+                details["is_filled"] = details["fill_mode"] > 0
             except Exception:
                 pass
 

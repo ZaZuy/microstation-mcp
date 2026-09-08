@@ -106,22 +106,38 @@ except ImportError:
 
 
 def get_mcp_server_entry():
-    """Xác định command và args chính xác cho MCP server, không bao giờ dùng thư mục Temp."""
-    # 1. Tìm file Vigela_MCP_Server.exe
-    mcp_exe_candidates = [
+    """Xác định command và args chính xác cho MCP server (Hợp nhất vào Vigela_AI_App.exe --mcp)."""
+    # 1. Nếu đang chạy dạng frozen exe (Vigela_AI_App.exe):
+    if getattr(sys, "frozen", False):
+        exe_path = os.path.abspath(sys.executable)
+        return {
+            "command": exe_path,
+            "args": ["--mcp"],
+            "autoApprove": ["*"],
+        }
+
+    # 2. Tìm file Vigela_AI_App.exe (bản hợp nhất)
+    app_candidates = [
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\Vigela_AI_App.exe"),
+        os.path.join(PROJECT_ROOT, "dist", "Vigela_AI_App.exe"),
+        os.path.join(INSTALL_DIR, "Vigela_AI_App.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "Vigela_AI_App.exe"),
+        # Tương thích ngược nếu còn file Vigela_MCP_Server.exe
         os.path.join(INSTALL_DIR, "Vigela_MCP_Server.exe"),
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\Vigela_MCP_Server.exe"),
-        os.path.join(PROJECT_ROOT, "dist", "Vigela_MCP_Server.exe"),
-        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "Vigela_MCP_Server.exe"),
     ]
-    for cand in mcp_exe_candidates:
+    for cand in app_candidates:
         if os.path.exists(cand):
+            args = ["--mcp"] if "Vigela_AI_App" in cand else []
             return {
                 "command": cand,
-                "args": [],
+                "args": args,
+                "autoApprove": [
+                    "*"
+                ],
             }
 
-    # 2. Fallback: dùng python + src/main.py trong INSTALL_DIR hoặc PROJECT_ROOT
+    # 3. Fallback: dùng python + src/main.py trong INSTALL_DIR hoặc PROJECT_ROOT
     main_py_candidates = [
         os.path.join(INSTALL_DIR, "src", "main.py"),
         os.path.join(PROJECT_ROOT, "src", "main.py"),
@@ -137,6 +153,9 @@ def get_mcp_server_entry():
     return {
         "command": PYTHON_EXE,
         "args": ["-X", "utf8", main_py],
+        "autoApprove": [
+            "*"
+        ],
     }
 
 
@@ -151,7 +170,7 @@ def ensure_mcp_configs():
         os.makedirs(gemini_config_dir, exist_ok=True)
         data = {}
         if os.path.exists(gemini_config_file):
-            with open(gemini_config_file, "r", encoding="utf-8") as f:
+            with open(gemini_config_file, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
         if "mcpServers" not in data:
             data["mcpServers"] = {}
@@ -168,7 +187,7 @@ def ensure_mcp_configs():
         os.makedirs(claude_config_dir, exist_ok=True)
         data = {}
         if os.path.exists(claude_config_file):
-            with open(claude_config_file, "r", encoding="utf-8") as f:
+            with open(claude_config_file, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
         if "mcpServers" not in data:
             data["mcpServers"] = {}
@@ -700,7 +719,7 @@ class LauncherGUI:
 
             if is_running:
                 st_lbl.config(
-                    text="🟢 ĐANG CHẠY (Đã kết nối 59 Tools)",
+                    text="🟢 ĐANG CHẠY (Đã kết nối 62 Tools)",
                     fg=self.running_color
                 )
                 btn.config(
@@ -713,7 +732,7 @@ class LauncherGUI:
                 card.config(highlightbackground="#059669")
             elif app["installed"]:
                 st_lbl.config(
-                    text="⚪ Đã cài đặt (Chưa mở - Sẵn sàng 59 Tools)",
+                    text="⚪ Đã cài đặt (Chưa mở - Sẵn sàng 62 Tools)",
                     fg=self.text_muted
                 )
                 btn.config(
@@ -769,10 +788,8 @@ class LauncherGUI:
         self.root.after(1000, self.periodic_check)
 
     def bg_check_updates(self):
-        """Kiểm tra cập nhật ngầm khi khởi động."""
-        has_update, new_ver, notes, method = check_for_updates()
-        if has_update:
-            self.root.after(0, lambda: self.show_update_banner(new_ver, notes, method))
+        """Kiểm tra cập nhật ngầm khi khởi động — đã tắt."""
+        return  # Tắt auto-check update
 
     def manual_check_update(self):
         """Người dùng bấm nút kiểm tra cập nhật thủ công."""
@@ -797,7 +814,17 @@ class LauncherGUI:
         for w in self.update_banner.winfo_children():
             w.destroy()
 
-        self.update_banner.pack(fill="x", padx=25, pady=(0, 8), before=self.root.winfo_children()[1])
+        try:
+            children = self.root.winfo_children()
+            if len(children) > 1:
+                self.update_banner.pack(fill="x", padx=25, pady=(0, 8), before=children[1])
+            else:
+                self.update_banner.pack(fill="x", padx=25, pady=(0, 8))
+        except Exception:
+            try:
+                self.update_banner.pack(fill="x", padx=25, pady=(0, 8))
+            except Exception:
+                pass
 
         b_icon = tk.Label(self.update_banner, text="🎉", font=("Segoe UI Emoji", 14), bg="#1e1b4b")
         b_icon.pack(side="left", padx=(12, 6), pady=8)

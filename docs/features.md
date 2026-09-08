@@ -1,6 +1,6 @@
-# Danh Mục Tính Năng Toàn Diện (59 Tools)
+# Danh Mục Tính Năng Toàn Diện (62 Tools)
 
-MCP Server cung cấp đầy đủ **59 công cụ CAD chuyên nghiệp**, chia thành 10 nhóm tính năng:
+MCP Server cung cấp đầy đủ **62 công cụ CAD chuyên nghiệp**, chia thành 10 nhóm tính năng:
 
 ---
 
@@ -15,6 +15,8 @@ MCP Server cung cấp đầy đủ **59 công cụ CAD chuyên nghiệp**, chia 
 - `draw_point(x, y, z=0.0, level, color, weight=5)`: Vẽ điểm mốc / Point Marker.
 - `draw_bspline_curve(points, level, color, weight, style)`: Vẽ đường cong trơn (Curve/Spline).
 - `place_cell(cell_name, x, y, scale=1.0, rotation_deg=0.0, level)`: Chèn khối block/cell từ thư viện.
+- `create_region(method, seed_x, seed_y, element_ids, fill_type, fill_color, outline_color, level, keep_original, auto_enable_view_fill)`: Tạo vùng kín và đổ màu nền toàn diện (Flood, Union, Intersection, Difference).
+- `flood_fill_region(seed_x, seed_y, fill_color=4, fill_type='opaque', outline_color, level)`: Tự động đổ màu kín vào diện tích thửa đất từ tọa độ điểm hạt giống (Create Region Flood).
 
 ---
 
@@ -27,13 +29,14 @@ MCP Server cung cấp đầy đủ **59 công cụ CAD chuyên nghiệp**, chia 
 
 ---
 
-## 3. Nhóm Chỉnh Sửa & Biến Đổi Hình Học (7 Tools - `src/tools/modify.py`)
+## 3. Nhóm Chỉnh Sửa & Biến Đổi Hình Học (8 Tools - `src/tools/modify.py`)
 - `move_element(element_id, dx, dy, dz=0.0)`: Di chuyển phần tử theo vector.
 - `copy_element(element_id, dx, dy, dz=0.0)`: Sao chép (clone) phần tử sang vị trí mới.
 - `rotate_element(element_id, origin_x, origin_y, angle_deg)`: Xoay phần tử quanh tâm.
 - `scale_element(element_id, origin_x, origin_y, scale_factor)`: Phóng to / thu nhỏ phần tử quanh điểm gốc.
 - `mirror_element(element_id, p1_x, p1_y, p2_x, p2_y, copy=False)`: Lấy đối xứng phần tử qua trục 2 điểm.
-- `change_element_symbology(element_id, level, color, weight, style)`: Cập nhật thuộc tính phần tử theo ID.
+- `fill_element(element_id, fill_color=4, level=None, keep_original=True)`: Đổ màu trực tiếp cho một thửa đất hoặc đối tượng kín theo ID.
+- `change_element_symbology(element_id, level, color, weight, style, filled, fill_color)`: Cập nhật thuộc tính phần tử (kèm màu tô Fill) theo ID.
 - `drop_element(element_id)`: Phân rã / phá khối (Drop/Explode) cell hoặc complex element.
 
 ---

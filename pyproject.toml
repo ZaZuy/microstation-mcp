@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=2.0.0",
+    "pillow>=12.3.0",
     "pywin32>=306",
 ]
 
