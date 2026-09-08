@@ -97,13 +97,39 @@ class MicroStationBridge:
             pass
 
         app = None
-        # Cách 1: Thử GetActiveObject
+
+        # Cách 1: Thử ApplicationObjectConnector (chuyên kết nối tới phiên GUI đang mở)
         try:
-            app = win32com.client.GetActiveObject("MicroStationDGN.Application")
+            connector = win32com.client.Dispatch("MicroStationDGN.ApplicationObjectConnector")
+            candidate = connector.Application
+            if candidate:
+                try:
+                    if candidate.HasActiveDesignFile:
+                        self._app = candidate
+                        return candidate
+                except Exception:
+                    pass
+                app = candidate
         except Exception:
             pass
 
-        # Cách 2: Thử Dispatch (kết nối tới instance đang chạy)
+        # Cách 2: Thử GetActiveObject
+        if not app or not getattr(app, "HasActiveDesignFile", False):
+            try:
+                candidate = win32com.client.GetActiveObject("MicroStationDGN.Application")
+                if candidate:
+                    try:
+                        if candidate.HasActiveDesignFile:
+                            self._app = candidate
+                            return candidate
+                    except Exception:
+                        pass
+                    if not app:
+                        app = candidate
+            except Exception:
+                pass
+
+        # Cách 3: Thử Dispatch (kết nối tới instance đang chạy)
         if not app:
             try:
                 app = win32com.client.Dispatch("MicroStationDGN.Application")
@@ -129,26 +155,26 @@ class MicroStationBridge:
                     except Exception:
                         pass
 
-                if is_running:
-                    raise RuntimeError(
-                        "Phần mềm MicroStation V8i ĐANG CHẠY nhưng không thể kết nối COM!\n\n"
-                        "Nguyên nhân và giải pháp:\n"
-                        "1. [QUAN TRỌNG NHẤT] Xung đột quyền Administrator (UAC):\n"
-                        "   - Nếu MicroStation đang chạy dưới quyền Administrator ('Run as administrator'), "
-                        "các app AI (Claude Desktop, Antigravity) chạy ở quyền thường sẽ bị Windows chặn giao tiếp qua COM.\n"
-                        "   👉 Khắc phục: Hãy tắt MicroStation và mở lại BÌNH THƯỜNG (không bấm 'Run as administrator'). "
-                        "Hoặc mở cả Claude Desktop dưới quyền Administrator.\n\n"
-                        "2. Chưa đăng ký COM Server trên máy:\n"
-                        "   👉 Khắc phục: Mở Command Prompt (cmd) bằng quyền Admin và gõ lệnh:\n"
-                        "      \"C:\\Program Files (x86)\\Bentley\\MicroStation V8i (SELECTseries)\\MicroStation\\ustation.exe\" -regserver\n\n"
-                        f"Chi tiết kỹ thuật: {ex}"
-                    )
-                else:
-                    raise RuntimeError(
-                        "Không thể kết nối tới MicroStation V8i! "
-                        "Vui lòng đảm bảo phần mềm MicroStation V8i đã được khởi động và mở sẵn một file bản vẽ (.dgn).\n"
-                        f"Chi tiết: {ex}"
-                    )
+                    if is_running:
+                        raise RuntimeError(
+                            "Phần mềm MicroStation V8i ĐANG CHẠY nhưng không thể kết nối COM!\n\n"
+                            "Nguyên nhân và giải pháp:\n"
+                            "1. [QUAN TRỌNG NHẤT] Xung đột quyền Administrator (UAC):\n"
+                            "   - Nếu MicroStation đang chạy dưới quyền Administrator ('Run as administrator'), "
+                            "các app AI (Claude Desktop, Antigravity) chạy ở quyền thường sẽ bị Windows chặn giao tiếp qua COM.\n"
+                            "   👉 Khắc phục: Hãy tắt MicroStation và mở lại BÌNH THƯỜNG (không bấm 'Run as administrator'). "
+                            "Hoặc mở cả Claude Desktop dưới quyền Administrator.\n\n"
+                            "2. Chưa đăng ký COM Server trên máy:\n"
+                            "   👉 Khắc phục: Mở Command Prompt (cmd) bằng quyền Admin và gõ lệnh:\n"
+                            "      \"C:\\Program Files (x86)\\Bentley\\MicroStation V8i (SELECTseries)\\MicroStation\\ustation.exe\" -regserver\n\n"
+                            f"Chi tiết kỹ thuật: {ex}"
+                        )
+                    else:
+                        raise RuntimeError(
+                            "Không thể kết nối tới MicroStation V8i! "
+                            "Vui lòng đảm bảo phần mềm MicroStation V8i đã được khởi động và mở sẵn một file bản vẽ (.dgn).\n"
+                            f"Chi tiết: {ex}"
+                        )
 
         if not app:
             raise RuntimeError("Không tìm thấy tiến trình MicroStation V8i đang hoạt động!")
@@ -159,10 +185,33 @@ class MicroStationBridge:
         if require_file:
             try:
                 if not app.HasActiveDesignFile:
-                    raise RuntimeError(
-                        "MicroStation V8i đang mở nhưng bạn CHƯA MỞ FILE BẢN VẼ nào!\n"
-                        "👉 Vui lòng mở một file (.dgn) hoặc tạo file mới trong MicroStation V8i trước khi thao tác."
-                    )
+                    # Kiểm tra xem có nhiều hơn 1 tiến trình ustation.exe chạy cùng lúc không (ghost processes)
+                    proc_count = 0
+                    try:
+                        out = subprocess.check_output(
+                            ["tasklist", "/FI", "IMAGENAME eq ustation.exe", "/FO", "CSV", "/NH"],
+                            text=True,
+                            creationflags=0x08000000 if sys.platform == "win32" else 0
+                        )
+                        proc_count = sum(1 for line in out.strip().splitlines() if "ustation.exe" in line.lower())
+                    except Exception:
+                        pass
+
+                    if proc_count > 1:
+                        raise RuntimeError(
+                            f"Phát hiện có {proc_count} tiến trình MicroStation (ustation.exe) đang chạy ngầm cùng lúc!\n"
+                            "Hệ thống đang bị kết nối nhầm vào tiến trình ngầm không có bản vẽ.\n\n"
+                            "👉 CÁCH XỬ LÝ TRONG 10 GIÂY:\n"
+                            "1. Bấm Ctrl + Shift + Esc để mở Task Manager.\n"
+                            "2. Tìm và bấm 'End task' TẤT CẢ các tiến trình 'MicroStation' / 'ustation.exe'.\n"
+                            "3. Mở lại MicroStation một lần duy nhất ➜ mở file bản vẽ (.dgn) của bạn.\n"
+                            "4. Chat lại với AI để vẽ!"
+                        )
+                    else:
+                        raise RuntimeError(
+                            "MicroStation V8i đang mở nhưng bạn CHƯA MỞ FILE BẢN VẼ nào!\n"
+                            "👉 Vui lòng mở một file (.dgn) hoặc tạo file mới trong MicroStation V8i trước khi thao tác."
+                        )
             except com_error as ce:
                 raise RuntimeError(f"Lỗi truy cập file MicroStation: {ce}")
 
