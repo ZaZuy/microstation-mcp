@@ -245,41 +245,57 @@ class InstallerGUI:
 
     def run_install_process(self):
         target_dir = os.path.abspath(self.install_path_var.get())
-        py_exe = find_python_executable()
 
         try:
             # Bước 1: Tạo thư mục đích
-            self.update_status("1/5. Đang khởi tạo thư mục cài đặt...", 15)
+            self.update_status("1/4. Đang khởi tạo thư mục cài đặt...", 20)
             os.makedirs(target_dir, exist_ok=True)
 
-            # Bước 2: Sao chép mã nguồn
-            self.update_status("2/5. Đang sao chép các tệp chương trình...", 35)
+            # Bước 2: Trích xuất và sao chép Vigela_AI_Launcher.exe (standalone)
+            # File này được nhúng bên trong Vigela_AI_App.exe bởi PyInstaller
+            self.update_status("2/4. Đang cài đặt Vigela AI Launcher...", 50)
+            launcher_exe_dst = os.path.join(target_dir, "Vigela_AI_Launcher.exe")
+
+            # Tìm Vigela_AI_Launcher.exe trong _MEIPASS (PyInstaller bundle) hoặc cùng thư mục
+            launcher_exe_src = None
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                candidate = os.path.join(meipass, "Vigela_AI_Launcher.exe")
+                if os.path.exists(candidate):
+                    launcher_exe_src = candidate
+
+            # Fallback: cùng thư mục với bộ cài đặt
+            if not launcher_exe_src:
+                for loc in [
+                    os.path.join(os.path.dirname(sys.executable), "Vigela_AI_Launcher.exe"),
+                    os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "Vigela_AI_Launcher.exe"),
+                    os.path.join(SOURCE_DIR, "dist", "Vigela_AI_Launcher.exe"),
+                ]:
+                    if os.path.exists(loc):
+                        launcher_exe_src = loc
+                        break
+
+            if launcher_exe_src:
+                shutil.copy2(launcher_exe_src, launcher_exe_dst)
+            else:
+                # Nếu không có sẵn launcher exe, fallback dùng Python nếu có
+                launcher_exe_dst = None
+
+            # Bước 3: Đồng bộ cấu hình MCP
+            self.update_status("3/4. Đang cấu hình kết nối MCP cho các ứng dụng AI...", 75)
+
+            # Tìm Python để cấu hình command cho Claude/Antigravity (MCP server chạy qua Python)
+            py_exe = find_python_executable()
+            meipass_src = getattr(sys, "_MEIPASS", SOURCE_DIR)
+            main_py = os.path.join(target_dir, "src", "main.py")
+
+            # Sao chép src nếu chưa có
             for item in ["src", "launcher", "docs", "assets"]:
-                s = os.path.join(SOURCE_DIR, item)
+                s = os.path.join(meipass_src, item)
                 d = os.path.join(target_dir, item)
                 if os.path.exists(s):
                     shutil.copytree(s, d, dirs_exist_ok=True)
 
-            for item in ["README.md", "AGENTS.md", "pyproject.toml", "requirements.txt", "server.py", "ms_bridge.py"]:
-                s = os.path.join(SOURCE_DIR, item)
-                d = os.path.join(target_dir, item)
-                if os.path.exists(s):
-                    shutil.copy2(s, d)
-
-            # Bước 3: Cài đặt dependencies
-            if self.install_deps_var.get():
-                self.update_status("3/5. Đang cài đặt thư viện Python (fastmcp, pywin32)...", 60)
-                req_path = os.path.join(target_dir, "requirements.txt")
-                if os.path.exists(req_path):
-                    subprocess.run(
-                        [py_exe, "-m", "pip", "install", "-r", req_path, "--quiet"],
-                        check=False,
-                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-                    )
-
-            # Bước 4: Đồng bộ cấu hình MCP
-            self.update_status("4/5. Đang cấu hình kết nối MCP cho các ứng dụng AI...", 80)
-            main_py = os.path.join(target_dir, "src", "main.py")
             mcp_entry = {
                 "command": py_exe,
                 "args": ["-X", "utf8", main_py],
@@ -319,9 +335,9 @@ class InstallerGUI:
                 except Exception:
                     pass
 
-            # Bước 5: Tạo Shortcut Desktop
+            # Bước 4: Tạo Shortcut Desktop → trỏ vào Vigela_AI_Launcher.exe
             if self.shortcut_var.get():
-                self.update_status("5/5. Đang tạo biểu tượng Desktop...", 95)
+                self.update_status("4/4. Đang tạo biểu tượng Desktop...", 95)
                 try:
                     import win32com.client
                     wsh = win32com.client.Dispatch("WScript.Shell")
@@ -329,41 +345,51 @@ class InstallerGUI:
                     lnk_path = os.path.join(desktop, "Vigela AI App.lnk")
 
                     # Xóa shortcut cũ nếu có
-                    old_lnk = os.path.join(desktop, "MicroStation AI Launcher.lnk")
-                    if os.path.exists(old_lnk):
-                        try:
-                            os.remove(old_lnk)
-                        except Exception:
-                            pass
-
-                    pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
-                    exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
-                    launcher_script = os.path.join(target_dir, "launcher", "ai_launcher.py")
+                    for old_name in ["MicroStation AI Launcher.lnk", "Vigela AI App.lnk"]:
+                        old_lnk = os.path.join(desktop, old_name)
+                        if os.path.exists(old_lnk):
+                            try:
+                                os.remove(old_lnk)
+                            except Exception:
+                                pass
 
                     sc = wsh.CreateShortcut(lnk_path)
-                    sc.TargetPath = exec_bin
-                    sc.Arguments = f'"{launcher_script}"'
+
+                    if launcher_exe_dst and os.path.exists(launcher_exe_dst):
+                        # Shortcut trỏ thẳng vào Vigela_AI_Launcher.exe (KHÔNG CẦN Python)
+                        sc.TargetPath = launcher_exe_dst
+                        sc.Arguments = ""
+                    else:
+                        # Fallback: dùng Python nếu có
+                        pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
+                        exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
+                        launcher_py = os.path.join(target_dir, "launcher", "ai_launcher.py")
+                        sc.TargetPath = exec_bin
+                        sc.Arguments = f'"{launcher_py}"'
+
                     sc.WorkingDirectory = target_dir
                     sc.Description = "Vigela AI App - MicroStation V8i CAD Assistant"
-                    
+
                     icon_path = os.path.join(target_dir, "launcher", "vigela_icon.ico")
                     if not os.path.exists(icon_path):
                         icon_path = os.path.join(target_dir, "assets", "vigela_icon.ico")
-                    if os.path.exists(icon_path):
+                    if launcher_exe_dst and os.path.exists(launcher_exe_dst):
+                        sc.IconLocation = f"{launcher_exe_dst}, 0"
+                    elif os.path.exists(icon_path):
                         sc.IconLocation = f"{icon_path}, 0"
                     sc.Save()
                 except Exception:
                     pass
 
             self.update_status("✓ Cài đặt hoàn tất thành công 100%!", 100)
-            self.root.after(0, lambda: self.finish_success(target_dir))
+            self.root.after(0, lambda: self.finish_success(target_dir, launcher_exe_dst))
 
         except Exception as ex:
             self.update_status(f"Lỗi: {ex}", 0)
             self.root.after(0, lambda: messagebox.showerror("Lỗi Cài Đặt", f"Đã xảy ra lỗi:\n{ex}"))
             self.root.after(0, lambda: self.install_btn.config(state="normal", text="🚀 Thử Lại"))
 
-    def finish_success(self, target_dir):
+    def finish_success(self, target_dir, launcher_exe=None):
         if messagebox.askyesno(
             "Cài Đặt Thành Công",
             "Đã cài đặt hoàn tất Vigela AI App!\n\n"
@@ -371,11 +397,19 @@ class InstallerGUI:
             "- Đã cấu hình kết nối MCP vào Claude Desktop & Antigravity.\n\n"
             "Bạn có muốn mở ngay Vigela AI App không?"
         ):
-            launcher_py = os.path.join(target_dir, "launcher", "ai_launcher.py")
-            py_exe = find_python_executable()
-            pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
-            exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
-            subprocess.Popen([exec_bin, launcher_py], cwd=target_dir)
+            try:
+                if launcher_exe and os.path.exists(launcher_exe):
+                    # Mở thẳng exe standalone — không cần Python
+                    subprocess.Popen([launcher_exe], cwd=target_dir)
+                else:
+                    # Fallback: dùng Python
+                    py_exe = find_python_executable()
+                    pyw_exe = py_exe.replace("python.exe", "pythonw.exe")
+                    exec_bin = pyw_exe if os.path.exists(pyw_exe) else py_exe
+                    launcher_py = os.path.join(target_dir, "launcher", "ai_launcher.py")
+                    subprocess.Popen([exec_bin, launcher_py], cwd=target_dir)
+            except Exception as e:
+                messagebox.showerror("Lỗi", f"Không thể mở Vigela AI App:\n{e}")
         self.root.destroy()
 
 
