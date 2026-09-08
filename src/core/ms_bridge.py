@@ -1,15 +1,79 @@
-"""
-src/core/ms_bridge.py
-Module cốt lõi quản lý kết nối COM / ActiveX Automation tới MicroStation V8i.
-"""
-
-import math
+import os
 import sys
 import subprocess
+import winreg
 from typing import List, Optional, Tuple, Any
 import pythoncom
 import win32com.client
 from pywintypes import com_error
+
+
+def auto_register_com() -> bool:
+    """
+    Tự động đăng ký COM MicroStationDGN.Application vào HKCU nếu máy chưa có.
+    Không yêu cầu quyền Administrator!
+    """
+    ustation_path = None
+    # 1. Tìm từ tiến trình ustation.exe đang chạy
+    try:
+        out = subprocess.check_output(
+            ["wmic", "process", "where", "name='ustation.exe'", "get", "ExecutablePath"],
+            text=True,
+            creationflags=0x08000000 if sys.platform == "win32" else 0
+        )
+        for line in out.splitlines():
+            line = line.strip()
+            if line.lower().endswith("ustation.exe") and os.path.exists(line):
+                ustation_path = line
+                break
+    except Exception:
+        pass
+
+    # 2. Tìm các đường dẫn cài đặt thông dụng
+    if not ustation_path:
+        candidates = [
+            r"C:\Program Files (x86)\Bentley\MicroStation V8i (SELECTseries)\MicroStation\ustation.exe",
+            r"C:\Program Files\Bentley\MicroStation V8i\MicroStation\ustation.exe",
+            r"D:\Bentley\MicroStation V8i (SELECTseries)\MicroStation\ustation.exe",
+            r"D:\Bentley\MicroStation V8i\MicroStation\ustation.exe",
+            r"C:\Bentley\MicroStation V8i\MicroStation\ustation.exe",
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                ustation_path = c
+                break
+
+    if not ustation_path:
+        return False
+
+    try:
+        clsid = "{6BA41DED-589A-427C-B829-B12F68C651B6}"
+        local_server = f'"{ustation_path}" -automation'
+        hkcu = winreg.HKEY_CURRENT_USER
+
+        with winreg.CreateKey(hkcu, r"Software\Classes\MicroStationDGN.Application\CLSID") as k:
+            winreg.SetValue(k, "", winreg.REG_SZ, clsid)
+        with winreg.CreateKey(hkcu, r"Software\Classes\MicroStationDGN.Application\CurVer") as k:
+            winreg.SetValue(k, "", winreg.REG_SZ, "MicroStationDGN.Application.1")
+
+        with winreg.CreateKey(hkcu, r"Software\Classes\MicroStationDGN.Application.1\CLSID") as k:
+            winreg.SetValue(k, "", winreg.REG_SZ, clsid)
+
+        for sub in [rf"Software\Classes\CLSID\{clsid}", rf"Software\Classes\WOW6432Node\CLSID\{clsid}"]:
+            try:
+                with winreg.CreateKey(hkcu, sub) as k:
+                    winreg.SetValue(k, "", winreg.REG_SZ, "Application Class")
+                with winreg.CreateKey(hkcu, rf"{sub}\LocalServer32") as k:
+                    winreg.SetValue(k, "", winreg.REG_SZ, local_server)
+                with winreg.CreateKey(hkcu, rf"{sub}\ProgID") as k:
+                    winreg.SetValue(k, "", winreg.REG_SZ, "MicroStationDGN.Application.1")
+                with winreg.CreateKey(hkcu, rf"{sub}\VersionIndependentProgID") as k:
+                    winreg.SetValue(k, "", winreg.REG_SZ, "MicroStationDGN.Application")
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
 
 
 class MicroStationBridge:
@@ -44,17 +108,26 @@ class MicroStationBridge:
             try:
                 app = win32com.client.Dispatch("MicroStationDGN.Application")
             except Exception as ex:
-                # Kiểm tra xem tiến trình ustation.exe có đang chạy trong Task Manager không
-                is_running = False
-                try:
-                    out = subprocess.check_output(
-                        ["tasklist", "/FI", "IMAGENAME eq ustation.exe", "/NH"],
-                        text=True,
-                        creationflags=0x08000000 if sys.platform == "win32" else 0
-                    )
-                    is_running = "ustation.exe" in out.lower()
-                except Exception:
-                    pass
+                # Tự động sửa lỗi Registry COM và thử lại ngay lập tức
+                re_registered = auto_register_com()
+                if re_registered:
+                    try:
+                        app = win32com.client.Dispatch("MicroStationDGN.Application")
+                    except Exception as ex_retry:
+                        ex = ex_retry
+
+                if not app:
+                    # Kiểm tra xem tiến trình ustation.exe có đang chạy trong Task Manager không
+                    is_running = False
+                    try:
+                        out = subprocess.check_output(
+                            ["tasklist", "/FI", "IMAGENAME eq ustation.exe", "/NH"],
+                            text=True,
+                            creationflags=0x08000000 if sys.platform == "win32" else 0
+                        )
+                        is_running = "ustation.exe" in out.lower()
+                    except Exception:
+                        pass
 
                 if is_running:
                     raise RuntimeError(
