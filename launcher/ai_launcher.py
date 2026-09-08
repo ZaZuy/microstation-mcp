@@ -340,8 +340,12 @@ def launch_app(app_info):
             subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{target}"], shell=False)
             return True
         elif target and os.path.exists(target):
-            subprocess.Popen([target], shell=False)
-            return True
+            try:
+                os.startfile(target)
+                return True
+            except Exception:
+                subprocess.Popen([target], shell=False)
+                return True
         elif app_info.get("id") == "claude":
             subprocess.Popen(["explorer.exe", "shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude"], shell=False)
             return True

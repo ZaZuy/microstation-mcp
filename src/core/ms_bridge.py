@@ -4,6 +4,8 @@ Module cốt lõi quản lý kết nối COM / ActiveX Automation tới MicroSta
 """
 
 import math
+import sys
+import subprocess
 from typing import List, Optional, Tuple, Any
 import pythoncom
 import win32com.client
@@ -42,11 +44,38 @@ class MicroStationBridge:
             try:
                 app = win32com.client.Dispatch("MicroStationDGN.Application")
             except Exception as ex:
-                raise RuntimeError(
-                    "Không thể kết nối tới MicroStation V8i! "
-                    "Vui lòng đảm bảo phần mềm MicroStation V8i đang mở.\n"
-                    f"Chi tiết: {ex}"
-                )
+                # Kiểm tra xem tiến trình ustation.exe có đang chạy trong Task Manager không
+                is_running = False
+                try:
+                    out = subprocess.check_output(
+                        ["tasklist", "/FI", "IMAGENAME eq ustation.exe", "/NH"],
+                        text=True,
+                        creationflags=0x08000000 if sys.platform == "win32" else 0
+                    )
+                    is_running = "ustation.exe" in out.lower()
+                except Exception:
+                    pass
+
+                if is_running:
+                    raise RuntimeError(
+                        "Phần mềm MicroStation V8i ĐANG CHẠY nhưng không thể kết nối COM!\n\n"
+                        "Nguyên nhân và giải pháp:\n"
+                        "1. [QUAN TRỌNG NHẤT] Xung đột quyền Administrator (UAC):\n"
+                        "   - Nếu MicroStation đang chạy dưới quyền Administrator ('Run as administrator'), "
+                        "các app AI (Claude Desktop, Antigravity) chạy ở quyền thường sẽ bị Windows chặn giao tiếp qua COM.\n"
+                        "   👉 Khắc phục: Hãy tắt MicroStation và mở lại BÌNH THƯỜNG (không bấm 'Run as administrator'). "
+                        "Hoặc mở cả Claude Desktop dưới quyền Administrator.\n\n"
+                        "2. Chưa đăng ký COM Server trên máy:\n"
+                        "   👉 Khắc phục: Mở Command Prompt (cmd) bằng quyền Admin và gõ lệnh:\n"
+                        "      \"C:\\Program Files (x86)\\Bentley\\MicroStation V8i (SELECTseries)\\MicroStation\\ustation.exe\" -regserver\n\n"
+                        f"Chi tiết kỹ thuật: {ex}"
+                    )
+                else:
+                    raise RuntimeError(
+                        "Không thể kết nối tới MicroStation V8i! "
+                        "Vui lòng đảm bảo phần mềm MicroStation V8i đã được khởi động và mở sẵn một file bản vẽ (.dgn).\n"
+                        f"Chi tiết: {ex}"
+                    )
 
         if not app:
             raise RuntimeError("Không tìm thấy tiến trình MicroStation V8i đang hoạt động!")
