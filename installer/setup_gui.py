@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import shutil
+import time
 import subprocess
 import threading
 import tkinter as tk
@@ -247,6 +248,20 @@ class InstallerGUI:
         target_dir = os.path.abspath(self.install_path_var.get())
 
         try:
+            # Bước 0: Tắt các tiến trình cũ đang chạy để tránh lỗi khóa tệp (WinError 32)
+            self.update_status("Đang giải phóng các tệp tin cũ...", 10)
+            for proc in ["Vigela_AI_Launcher.exe", "Vigela_MCP_Server.exe"]:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", proc],
+                        creationflags=0x08000000 if sys.platform == "win32" else 0,
+                        check=False,
+                        capture_output=True
+                    )
+                except Exception:
+                    pass
+            time.sleep(0.5)
+
             # Bước 1: Tạo thư mục đích
             self.update_status("1/4. Đang khởi tạo thư mục cài đặt...", 20)
             os.makedirs(target_dir, exist_ok=True)
@@ -256,14 +271,35 @@ class InstallerGUI:
 
             meipass = getattr(sys, "_MEIPASS", None)
 
+            def copy_file_safe(src, dst, max_retries=3):
+                """Sao chép tệp với cơ chế thử lại nếu tệp đang bị tiến trình khác chiếm giữ."""
+                for attempt in range(max_retries):
+                    try:
+                        shutil.copy2(src, dst)
+                        return True
+                    except PermissionError:
+                        base = os.path.basename(dst)
+                        try:
+                            subprocess.run(
+                                ["taskkill", "/F", "/IM", base],
+                                creationflags=0x08000000 if sys.platform == "win32" else 0,
+                                check=False,
+                                capture_output=True
+                            )
+                        except Exception:
+                            pass
+                        time.sleep(0.7)
+                shutil.copy2(src, dst)
+                return True
+
             def extract_bundled_exe(exe_name):
-                """Tìm và copy exe từ _MEIPASS ra target_dir."""
+                """Tìm và copy exe từ _MEIPASS ra target_dir an toàn."""
                 dst = os.path.join(target_dir, exe_name)
                 # Ưu tiên: _MEIPASS (khi chạy là frozen exe)
                 if meipass:
                     src = os.path.join(meipass, exe_name)
                     if os.path.exists(src):
-                        shutil.copy2(src, dst)
+                        copy_file_safe(src, dst)
                         return dst
                 # Fallback: cùng thư mục với bộ cài đặt
                 for loc in [
@@ -272,7 +308,7 @@ class InstallerGUI:
                     os.path.join(SOURCE_DIR, "dist", exe_name),
                 ]:
                     if os.path.exists(loc):
-                        shutil.copy2(loc, dst)
+                        copy_file_safe(loc, dst)
                         return dst
                 return None
 
