@@ -20,9 +20,18 @@ import webbrowser
 import tkinter as tk
 from tkinter import messagebox
 
-# Đường dẫn dự án
-LAUNCHER_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(LAUNCHER_DIR)
+# Đường dẫn dự án và cài đặt
+if getattr(sys, "frozen", False):
+    INSTALL_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    BUNDLE_DIR = getattr(sys, "_MEIPASS", INSTALL_DIR)
+    LAUNCHER_DIR = os.path.join(INSTALL_DIR, "launcher")
+    PROJECT_ROOT = INSTALL_DIR
+else:
+    LAUNCHER_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_ROOT = os.path.dirname(LAUNCHER_DIR)
+    INSTALL_DIR = PROJECT_ROOT
+    BUNDLE_DIR = PROJECT_ROOT
+
 
 def find_python_executable():
     """Tìm python.exe thực sự của hệ thống trên máy."""
@@ -86,8 +95,6 @@ def find_python_executable():
 
 PYTHON_EXE = find_python_executable()
 
-MAIN_PY = os.path.join(PROJECT_ROOT, "src", "main.py")
-
 # Import module updater
 sys.path.insert(0, LAUNCHER_DIR)
 try:
@@ -98,12 +105,44 @@ except ImportError:
     perform_update = lambda: (False, "Không tìm thấy updater")
 
 
+def get_mcp_server_entry():
+    """Xác định command và args chính xác cho MCP server, không bao giờ dùng thư mục Temp."""
+    # 1. Tìm file Vigela_MCP_Server.exe
+    mcp_exe_candidates = [
+        os.path.join(INSTALL_DIR, "Vigela_MCP_Server.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\Vigela_MCP_Server.exe"),
+        os.path.join(PROJECT_ROOT, "dist", "Vigela_MCP_Server.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "Vigela_MCP_Server.exe"),
+    ]
+    for cand in mcp_exe_candidates:
+        if os.path.exists(cand):
+            return {
+                "command": cand,
+                "args": [],
+            }
+
+    # 2. Fallback: dùng python + src/main.py trong INSTALL_DIR hoặc PROJECT_ROOT
+    main_py_candidates = [
+        os.path.join(INSTALL_DIR, "src", "main.py"),
+        os.path.join(PROJECT_ROOT, "src", "main.py"),
+    ]
+    main_py = None
+    for cand in main_py_candidates:
+        if os.path.exists(cand):
+            main_py = cand
+            break
+    if not main_py:
+        main_py = main_py_candidates[0]
+
+    return {
+        "command": PYTHON_EXE,
+        "args": ["-X", "utf8", main_py],
+    }
+
+
 def ensure_mcp_configs():
     """Tự động đồng bộ cấu hình MCP MicroStation cho các App AI."""
-    mcp_entry = {
-        "command": PYTHON_EXE,
-        "args": ["-X", "utf8", MAIN_PY],
-    }
+    mcp_entry = get_mcp_server_entry()
 
     # 1. Antigravity config
     gemini_config_dir = os.path.expanduser(r"~/.gemini/config")
@@ -812,7 +851,10 @@ class LauncherGUI:
                 if success:
                     messagebox.showinfo("Hoàn Tất", f"{msg}\nLauncher sẽ khởi động lại với phiên bản mới!")
                     # Khởi động lại launcher
-                    subprocess.Popen([sys.executable, os.path.join(LAUNCHER_DIR, "ai_launcher.py")])
+                    if getattr(sys, "frozen", False):
+                        subprocess.Popen([sys.executable])
+                    else:
+                        subprocess.Popen([sys.executable, os.path.join(LAUNCHER_DIR, "ai_launcher.py")])
                     self.root.destroy()
                 else:
                     messagebox.showerror("Lỗi Cập Nhật", f"Không thể hoàn tất cập nhật:\n{msg}")

@@ -5,6 +5,20 @@ Entry point chính để khởi động MicroStation V8i MCP Server.
 
 import os
 import sys
+
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdin, "reconfigure"):
+            sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    os.environ["PYTHONUTF8"] = "1"
+
 import argparse
 
 # Đảm bảo thư mục gốc dự án nằm trong sys.path
