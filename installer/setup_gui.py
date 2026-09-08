@@ -251,55 +251,61 @@ class InstallerGUI:
             self.update_status("1/4. Đang khởi tạo thư mục cài đặt...", 20)
             os.makedirs(target_dir, exist_ok=True)
 
-            # Bước 2: Trích xuất và sao chép Vigela_AI_Launcher.exe (standalone)
-            # File này được nhúng bên trong Vigela_AI_App.exe bởi PyInstaller
-            self.update_status("2/4. Đang cài đặt Vigela AI Launcher...", 50)
-            launcher_exe_dst = os.path.join(target_dir, "Vigela_AI_Launcher.exe")
+            # Bước 2: Trích xuất Vigela_AI_Launcher.exe + Vigela_MCP_Server.exe từ bundle
+            self.update_status("2/4. Đang cài đặt Vigela AI Launcher & MCP Server...", 45)
 
-            # Tìm Vigela_AI_Launcher.exe trong _MEIPASS (PyInstaller bundle) hoặc cùng thư mục
-            launcher_exe_src = None
             meipass = getattr(sys, "_MEIPASS", None)
-            if meipass:
-                candidate = os.path.join(meipass, "Vigela_AI_Launcher.exe")
-                if os.path.exists(candidate):
-                    launcher_exe_src = candidate
 
-            # Fallback: cùng thư mục với bộ cài đặt
-            if not launcher_exe_src:
+            def extract_bundled_exe(exe_name):
+                """Tìm và copy exe từ _MEIPASS ra target_dir."""
+                dst = os.path.join(target_dir, exe_name)
+                # Ưu tiên: _MEIPASS (khi chạy là frozen exe)
+                if meipass:
+                    src = os.path.join(meipass, exe_name)
+                    if os.path.exists(src):
+                        shutil.copy2(src, dst)
+                        return dst
+                # Fallback: cùng thư mục với bộ cài đặt
                 for loc in [
-                    os.path.join(os.path.dirname(sys.executable), "Vigela_AI_Launcher.exe"),
-                    os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "Vigela_AI_Launcher.exe"),
-                    os.path.join(SOURCE_DIR, "dist", "Vigela_AI_Launcher.exe"),
+                    os.path.join(os.path.dirname(sys.executable), exe_name),
+                    os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), exe_name),
+                    os.path.join(SOURCE_DIR, "dist", exe_name),
                 ]:
                     if os.path.exists(loc):
-                        launcher_exe_src = loc
-                        break
+                        shutil.copy2(loc, dst)
+                        return dst
+                return None
 
-            if launcher_exe_src:
-                shutil.copy2(launcher_exe_src, launcher_exe_dst)
-            else:
-                # Nếu không có sẵn launcher exe, fallback dùng Python nếu có
-                launcher_exe_dst = None
+            launcher_exe_dst = extract_bundled_exe("Vigela_AI_Launcher.exe")
+            mcp_server_dst = extract_bundled_exe("Vigela_MCP_Server.exe")
 
-            # Bước 3: Đồng bộ cấu hình MCP
+            # Bước 3: Đồng bộ cấu hình MCP → trỏ vào Vigela_MCP_Server.exe
             self.update_status("3/4. Đang cấu hình kết nối MCP cho các ứng dụng AI...", 75)
 
-            # Tìm Python để cấu hình command cho Claude/Antigravity (MCP server chạy qua Python)
-            py_exe = find_python_executable()
-            meipass_src = getattr(sys, "_MEIPASS", SOURCE_DIR)
-            main_py = os.path.join(target_dir, "src", "main.py")
+            meipass_src = meipass if meipass else SOURCE_DIR
 
-            # Sao chép src nếu chưa có
+            # Sao chép src, launcher, assets
             for item in ["src", "launcher", "docs", "assets"]:
                 s = os.path.join(meipass_src, item)
                 d = os.path.join(target_dir, item)
                 if os.path.exists(s):
                     shutil.copytree(s, d, dirs_exist_ok=True)
 
-            mcp_entry = {
-                "command": py_exe,
-                "args": ["-X", "utf8", main_py],
-            }
+            # Cấu hình MCP: dùng Vigela_MCP_Server.exe nếu có, fallback dùng Python
+            if mcp_server_dst and os.path.exists(mcp_server_dst):
+                mcp_entry = {
+                    "command": mcp_server_dst,
+                    "args": [],
+                }
+            else:
+                # Fallback: dùng Python nếu có trên máy
+                py_exe = find_python_executable()
+                main_py = os.path.join(target_dir, "src", "main.py")
+                mcp_entry = {
+                    "command": py_exe,
+                    "args": ["-X", "utf8", main_py],
+                }
+
 
             if self.config_antigravity_var.get():
                 gemini_dir = os.path.expanduser(r"~/.gemini/config")
