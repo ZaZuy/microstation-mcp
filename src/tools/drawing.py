@@ -4,7 +4,9 @@ Các công cụ vẽ hình học trong MicroStation V8i cho AI.
 Bao gồm: đoạn thẳng, polyline, đa giác, hình chữ nhật, đường tròn, cung tròn, elip, điểm mốc, đường cong, cell.
 """
 
+import os
 import math
+from collections import defaultdict
 from typing import List, Optional, Any
 from src.core.ms_bridge import bridge
 
@@ -443,11 +445,13 @@ def register_drawing_tools(mcp):
         :param seed_y: Tọa độ Y điểm bên trong vùng (bắt buộc cho method='flood')
         :param element_ids: Danh sách ID các đối tượng cần tính toán (cho method='union', 'intersection', 'difference')
         :param fill_type: Chế độ tô màu ('opaque' - tô đặc kín, 'outline' - tô đặc có viền, 'none' - rỗng)
-        :param fill_color: Chỉ số màu nền tô (0-255, mặc định 4 là màu vàng)
+        :param fill_color: Chỉ số màu nền tô (0-255, bảng màu chuẩn MicroStation: 0=Trắng, 1=Xanh dương, 2=Xanh lá, 3=Đỏ, 4=Vàng [RGB: 255,255,0], 5=Tím, 6=Cam, 7=Xanh lơ/Cyan)
         :param outline_color: Chỉ số màu đường viền bao quanh (0-255, tùy chọn)
         :param level: Tên Level đặt đối tượng mới (mặc định giữ nguyên level active)
         :param keep_original: True nếu muốn giữ lại các đoạn ranh giới gốc
         :param auto_enable_view_fill: True để tự động bật thuộc tính hiển thị Fill trên các View của MicroStation
+
+
         """
         app = bridge.get_app()
         model = bridge.get_active_model()
@@ -456,45 +460,35 @@ def register_drawing_tools(mcp):
 
         if auto_enable_view_fill:
             try:
-                app.CadInputQueue.SendKeyin(
-                    "vba execute Dim vi As Integer: For vi = 1 To 8: "
-                    "If ActiveDesignFile.Views(vi).IsOpen Then "
-                    "ActiveDesignFile.Views(vi).DisplaysFill = True: "
-                    "ActiveDesignFile.Views(vi).Redraw: "
-                    "End If: Next"
-                )
-                for vi in range(4):
-                    app.CadInputQueue.SendKeyin(f"MDL KEYIN BENTLEY.VIEWATTRIBUTESDIALOG,VAD VIEWATTRIBUTESDIALOG SETATTRIBUTE {vi} Fill True")
+                # Keyin chuẩn V8i để bật Fill cho các view đang mở (không dùng VBA)
+                for vi in range(1, 9):
+                    app.CadInputQueue.SendKeyin(f"view on fill {vi}")
+                app.CadInputQueue.SendKeyin("update all")
             except Exception:
                 pass
 
         ft_code = 1 if fill_type.lower() in ("opaque", "solid") else (2 if fill_type.lower() == "outline" else 0)
 
-        # Cấu hình Keep Original cho Create Region
-        try:
-            ko_val = 1 if keep_original else 0
-            app.CadInputQueue.SendKeyin(f'vba execute SetCExpressionValue "tcb->msToolSettings.createRegion.keepOriginal", {ko_val}, "REGION"')
-        except Exception:
-            pass
-
-        # Cấu hình thuộc tính Active cho vùng mới tạo
+        # Cấu hình thuộc tính Active cho vùng mới tạo (không dùng SetCExpressionValue - gây popup)
         if level:
             app.CadInputQueue.SendKeyin(f"lv={level}")
         if outline_color is not None:
             app.CadInputQueue.SendKeyin(f"co={outline_color}")
 
-        try:
-            app.CadInputQueue.SendKeyin(f"vba execute ActiveSettings.FillColor = {int(fill_color)}: ActiveSettings.FillMode = {ft_code}")
-        except Exception:
-            app.CadInputQueue.SendKeyin(f"set active fillcolor {fill_color}")
-            if ft_code > 0:
-                app.CadInputQueue.SendKeyin("set active fill on")
+        # Set active fill color qua keyin chuẩn (tránh VBA SetCExpressionValue)
+        app.CadInputQueue.SendKeyin(f"active color {int(fill_color)}")
+        app.CadInputQueue.SendKeyin(f"active fillcolor {int(fill_color)}")
+        if ft_code > 0:
+            app.CadInputQueue.SendKeyin("active fill on")
+        else:
+            app.CadInputQueue.SendKeyin("active fill off")
 
         m = str(method).lower().strip()
+        app.CadInputQueue.SendKeyin(f"create region {m}")
+
         if m == "flood":
             if seed_x is None or seed_y is None:
                 return "Lỗi: Phương pháp 'flood' yêu cầu cung cấp tọa độ seed_x và seed_y bên trong vùng!"
-            app.CadInputQueue.SendKeyin("create region flood")
             pt = bridge.create_point(seed_x, seed_y, 0.0)
             app.CadInputQueue.SendDataPoint(pt, 1)
             app.CadInputQueue.SendDataPoint(pt, 1)
@@ -502,7 +496,6 @@ def register_drawing_tools(mcp):
         elif m in ("union", "intersection", "difference"):
             if not element_ids or len(element_ids) < 2:
                 return f"Lỗi: Phương pháp '{method}' yêu cầu danh sách element_ids chứa tối thiểu 2 ID phần tử!"
-            app.CadInputQueue.SendKeyin(f"create region {m}")
             last_pt = None
             for eid in element_ids:
                 el = bridge.find_element_by_id(eid)
@@ -517,33 +510,44 @@ def register_drawing_tools(mcp):
             return f"Lỗi: Phương pháp '{method}' không hợp lệ! Vui lòng chọn trong: 'flood', 'union', 'intersection', 'difference'."
 
         count_after = cache.Count
-        new_el = None
+        new_ids = []
         if count_after > count_before:
-            try:
-                new_el = cache.GetElement(count_after)
-            except Exception:
-                pass
-
-        if new_el:
-            new_id = str(getattr(new_el, "ID64", getattr(new_el, "ID", "")))
-            if new_id:
+            for idx in range(count_before + 1, count_after + 1):
                 try:
+                    el = cache.GetElement(idx)
+                    if not el:
+                        continue
+                    eid = str(getattr(el, "ID64", getattr(el, "ID", "")))
+                    if not eid:
+                        continue
+                    new_ids.append(eid)
+
+                    if getattr(el, "IsClosedElement", False):
+                        try:
+                            closed = el.AsClosedElement()
+                            closed.FillMode = ft_code
+                            closed.FillColor = int(fill_color)
+                            if outline_color is not None:
+                                el.Color = int(outline_color)
+                            closed.Rewrite()
+                            closed.Redraw()
+                        except Exception:
+                            pass
+
+                    # Đồng thời gửi lệnh VBA chuẩn để đảm bảo MicroStation cập nhật triệt để
                     outline_cmd = f"oEl.Color = {int(outline_color)}: " if outline_color is not None else ""
                     app.CadInputQueue.SendKeyin(
-                        f"vba execute Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({new_id})): "
+                        f"vba execute On Error Resume Next: Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({eid})): "
                         f"If oEl.IsClosedElement Then "
-                        f"oEl.AsClosedElement.FillMode = {ft_code}: "
-                        f"oEl.AsClosedElement.FillColor = {int(fill_color)}: "
-                        f"{outline_cmd}"
-                        f"oEl.Rewrite: oEl.Redraw: End If"
+                        f"Dim oC As ClosedElement: Set oC = oEl.AsClosedElement: "
+                        f"oC.FillMode = {ft_code}: oC.FillColor = {int(fill_color)}: "
+                        f"{outline_cmd}oC.Rewrite: oC.Redraw: End If"
                     )
                 except Exception:
                     pass
-            try:
-                new_el.Redraw()
-            except Exception:
-                pass
-            return f"Đã tạo vùng ({m.upper()}) thành công! Đối tượng mới ID: {new_id}, màu tô nền: {fill_color} ({fill_type}), viền: {outline_color if outline_color is not None else 'Giữ nguyên'}."
+
+            id_str = ", ".join(new_ids) if new_ids else "Mới"
+            return f"Đã tạo vùng ({m.upper()}) thành công! Đối tượng mới ID: {id_str}, màu tô nền: {fill_color} ({fill_type}), viền: {outline_color if outline_color is not None else 'Giữ nguyên'}."
 
         return f"Đã gửi lệnh tạo vùng ({m.upper()}) với chế độ tô {fill_type} màu {fill_color}."
 
@@ -562,7 +566,7 @@ def register_drawing_tools(mcp):
 
         :param seed_x: Tọa độ X điểm bên trong thửa đất / vùng cần đổ màu
         :param seed_y: Tọa độ Y điểm bên trong thửa đất / vùng cần đổ màu
-        :param fill_color: Chỉ số màu tô (0-255, mặc định 4 là màu vàng)
+        :param fill_color: Chỉ số màu tô (0-255, bảng màu chuẩn MicroStation: 0=Trắng, 1=Xanh dương, 2=Xanh lá, 3=Đỏ, 4=Vàng [RGB: 255,255,0], 5=Tím, 6=Cam, 7=Xanh lơ/Cyan)
         :param fill_type: Chế độ tô ('opaque' - tô đặc kín, 'outline' - tô đặc có viền, 'none')
         :param outline_color: Chỉ số màu đường viền (tùy chọn)
         :param level: Tên Level đặt đối tượng Shape tô màu (mặc định theo level active)
@@ -577,5 +581,261 @@ def register_drawing_tools(mcp):
             level=level,
             auto_enable_view_fill=True,
         )
+
+    @mcp.tool
+    def copy_reference_parcel(
+        seed_x: float,
+        seed_y: float,
+        reference_file: Optional[str] = None,
+        target_level: str = "Level 11",
+        color: int = 3,
+        weight: int = 2,
+        fill_color: Optional[int] = 3,
+        label_text: Optional[str] = None,
+        search_radius: float = 25.0,
+    ) -> str:
+        """
+        Sao chép và tạo Region ranh giới thửa đất từ file Reference đang đính kèm vào thẳng file hiện hành mà không cần đổi file.
+        Xử lý tức thì (< 1 giây), không làm gián đoạn màn hình, tự động đóng kín các đoạn thẳng rời rạc thành Shape khép kín.
+
+        :param seed_x: Tọa độ X của điểm nằm bên trong thửa đất
+        :param seed_y: Tọa độ Y của điểm nằm bên trong thửa đất
+        :param reference_file: Đường dẫn hoặc tên file Reference (nếu None sẽ tự động lấy file tham chiếu đang đính kèm)
+        :param target_level: Level lưu hình thửa mới trên file hiện hành (mặc định 'Level 11')
+        :param color: Chỉ số màu đường viền (mặc định 3 - Đỏ)
+        :param weight: Độ dày nét vẽ (mặc định 2)
+        :param fill_color: Chỉ số màu tô nền (mặc định 3 - Đỏ, None nếu rỗng)
+        :param label_text: Nhãn ghi chú đặt vào tâm thửa (nếu có)
+        :param search_radius: Bán kính tìm kiếm quanh điểm hạt giống (mặc định 25m)
+        """
+        app = bridge.get_app()
+        active_dgn = bridge.get_active_file()
+        active_model = bridge.get_active_model()
+
+        # 1. Xác định đường dẫn file reference
+        ref_path = None
+        cur_dir = os.path.dirname(getattr(active_dgn, "FullName", ""))
+        if reference_file:
+            if os.path.isabs(reference_file) and os.path.exists(reference_file):
+                ref_path = reference_file
+            elif cur_dir:
+                cand = os.path.join(cur_dir, os.path.basename(reference_file))
+                if os.path.exists(cand):
+                    ref_path = cand
+
+        if not ref_path:
+            attachments = active_model.Attachments
+            for i in range(1, attachments.Count + 1):
+                try:
+                    att = attachments.Item(i)
+                    aname = getattr(att, "AttachName", "")
+                    if cur_dir:
+                        cand = os.path.join(cur_dir, os.path.basename(aname))
+                        if os.path.exists(cand):
+                            ref_path = cand
+                            break
+                    if os.path.exists(aname):
+                        ref_path = aname
+                        break
+                except Exception:
+                    continue
+
+        if not ref_path or not os.path.exists(ref_path):
+            return "Lỗi: Không tìm thấy file tham chiếu (Reference) nào đang đính kèm hoặc đường dẫn không hợp lệ!"
+
+        # 2. Đọc các đoạn ranh giới từ file reference ở chế độ nền (Background)
+        bg_dgn = None
+        segments = []
+        try:
+            bg_dgn = app.OpenDesignFileForProgram(ref_path, True)
+            bg_model = bg_dgn.DefaultModelReference
+            cache = bg_model.GraphicalElementCache
+
+            min_x = seed_x - search_radius
+            max_x = seed_x + search_radius
+            min_y = seed_y - search_radius
+            max_y = seed_y + search_radius
+
+            for idx in range(1, cache.Count + 1):
+                try:
+                    el = cache.GetElement(idx)
+                    if not el:
+                        continue
+                    rng = el.Range
+                    if rng.High.X < min_x or rng.Low.X > max_x or rng.High.Y < min_y or rng.Low.Y > max_y:
+                        continue
+
+                    el_type = int(el.Type)
+                    if el_type == 3:  # Line
+                        le = el.AsLineElement()
+                        p1 = (round(le.StartPoint.X, 3), round(le.StartPoint.Y, 3))
+                        p2 = (round(le.EndPoint.X, 3), round(le.EndPoint.Y, 3))
+                        segments.append((p1, p2))
+                    elif el_type == 4:  # LineString
+                        lse = el.AsLineStringElement()
+                        pts_ls = []
+                        try:
+                            vcount = getattr(lse, "VerticesCount", 0)
+                            for vi in range(1, vcount + 1):
+                                pt = lse.Vertex(vi)
+                                pts_ls.append((round(pt.X, 3), round(pt.Y, 3)))
+                        except Exception:
+                            pass
+                        if not pts_ls:
+                            raw = lse.GetVertices()
+                            pts_ls = [(round(p.X, 3), round(p.Y, 3)) for p in raw]
+                        for vi in range(len(pts_ls) - 1):
+                            segments.append((pts_ls[vi], pts_ls[vi + 1]))
+                    elif el_type == 6:  # Shape
+                        se = el.AsShapeElement()
+                        pts_s = []
+                        try:
+                            vcount = getattr(se, "VerticesCount", 0)
+                            for vi in range(1, vcount + 1):
+                                pt = se.Vertex(vi)
+                                pts_s.append((round(pt.X, 3), round(pt.Y, 3)))
+                        except Exception:
+                            pass
+                        if not pts_s:
+                            raw = se.GetVertices()
+                            pts_s = [(round(p.X, 3), round(p.Y, 3)) for p in raw]
+                        for vi in range(len(pts_s) - 1):
+                            segments.append((pts_s[vi], pts_s[vi + 1]))
+                except Exception:
+                    continue
+        finally:
+            if bg_dgn:
+                try:
+                    bg_dgn.Close()
+                except Exception:
+                    pass
+
+        if not segments:
+            return f"Không tìm thấy đoạn ranh giới nào trong file tham chiếu tại vùng ({seed_x}, {seed_y}) với bán kính {search_radius}m."
+
+        # 3. Thuật toán Topological Chaining khép góc đa giác
+        def point_in_polygon(px, py, poly):
+            inside = False
+            n = len(poly)
+            p1x, p1y = poly[0]
+            for i in range(1, n + 1):
+                p2x, p2y = poly[i % n]
+                if min(p1y, p2y) < py <= max(p1y, p2y):
+                    if px <= max(p1x, p2x):
+                        xinters = (py - p1y) * (p2x - p1x) / (p2y - p1y + 1e-12) + p1x
+                        if p1x == p2x or px <= xinters:
+                            inside = not inside
+                p1x, p1y = p2x, p2y
+            return inside
+
+        def calc_area(poly):
+            n = len(poly)
+            a = 0.0
+            for i in range(n):
+                j = (i + 1) % n
+                a += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1]
+            return abs(a) / 2.0
+
+        # Xây dựng đồ thị các đỉnh với dung sai hở ranh 8cm
+        nodes = []
+        tol = 0.08
+
+        def get_node(pt):
+            for i, n in enumerate(nodes):
+                if math.hypot(n[0] - pt[0], n[1] - pt[1]) < tol:
+                    return i
+            nodes.append(pt)
+            return len(nodes) - 1
+
+        adj = defaultdict(set)
+        for p1, p2 in segments:
+            n1 = get_node(p1)
+            n2 = get_node(p2)
+            if n1 != n2:
+                adj[n1].add(n2)
+                adj[n2].add(n1)
+
+        # Tìm các chu trình kín đơn (simple cycles) bằng DFS
+        cycles = []
+
+        def find_cycles_dfs(curr, start, path, max_depth=35):
+            if len(path) > max_depth:
+                return
+            for nxt in adj[curr]:
+                if nxt == start and len(path) >= 3:
+                    cycles.append(list(path))
+                elif nxt not in path:
+                    find_cycles_dfs(nxt, start, path + [nxt], max_depth)
+
+        for start_node in range(len(nodes)):
+            find_cycles_dfs(start_node, start_node, [start_node])
+
+        # Lọc chu trình bao quanh hạt giống seed_x, seed_y và có diện tích nhỏ nhất
+        best_poly = None
+        min_area = float("inf")
+
+        for c_indices in cycles:
+            poly = [nodes[idx] for idx in c_indices]
+            area = calc_area(poly)
+            if area > 1.0:  # loại bỏ đa giác quá nhỏ / rác
+                if point_in_polygon(seed_x, seed_y, poly):
+                    if area < min_area:
+                        min_area = area
+                        best_poly = poly
+
+        if not best_poly:
+            return f"Không thể tự động khép góc kín thửa đất chứa điểm ({seed_x}, {seed_y}) từ các đoạn ranh giới tham chiếu."
+
+        # 4. Vẽ Shape khép kín trực tiếp vào file hiện hành
+        pt_objs = [bridge.create_point(x, y, 0.0) for x, y in best_poly]
+        fill_mode = 1 if fill_color is not None else 0
+        shape_elem = bridge.unwrap(app.CreateShapeElement1(None, pt_objs, fill_mode))
+        bridge.apply_symbology(shape_elem, level=target_level, color=color, weight=weight)
+        if fill_color is not None:
+            try:
+                shape_elem.FillColor = int(fill_color)
+            except Exception:
+                pass
+        bridge.add_element(shape_elem)
+        shape_id = str(getattr(shape_elem, "ID64", getattr(shape_elem, "ID", "")))
+
+        # 5. Ghi nhãn text nếu có yêu cầu
+        if label_text:
+            try:
+                lbl_pt = bridge.create_point(seed_x, seed_y, 0.0)
+                mat = bridge.create_rotation_matrix(0.0)
+                te = bridge.unwrap(app.CreateTextElement1(None, str(label_text), lbl_pt, mat))
+                bridge.apply_symbology(te, level=target_level, color=color, weight=1)
+                try:
+                    te.TextStyle.Height = 0.6
+                    te.TextStyle.Width = 0.6
+                except Exception:
+                    pass
+                bridge.add_element(te)
+            except Exception:
+                pass
+
+        try:
+            shape_elem.Redraw()
+        except Exception:
+            pass
+
+        # Tính chu vi
+        perim = 0.0
+        n_pts = len(best_poly)
+        for i in range(n_pts):
+            j = (i + 1) % n_pts
+            perim += math.hypot(best_poly[j][0] - best_poly[i][0], best_poly[j][1] - best_poly[i][1])
+
+        return (
+            f"Đã sao chép và tạo Region thành công từ Reference!\n"
+            f"- Đối tượng mới: ShapeElement ID {shape_id}\n"
+            f"- Level: {target_level}, Màu viền: {color}, Màu tô: {fill_color}\n"
+            f"- Số đỉnh: {len(best_poly)}\n"
+            f"- Diện tích: {round(min_area, 3)} m²\n"
+            f"- Chu vi: {round(perim, 3)} m\n"
+            f"- Tọa độ các đỉnh: {best_poly}"
+        )
+
 
 

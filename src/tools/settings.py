@@ -33,7 +33,7 @@ def register_settings_tools(mcp):
         """
         Thay đổi màu vẽ hiện tại (Active Color).
 
-        :param color_index: Chỉ số màu từ 0 đến 255 (ví dụ 0=trắng, 1=xanh dương, 2=xanh lá, 3=đỏ...)
+        :param color_index: Chỉ số màu từ 0 đến 255 (bảng màu chuẩn MicroStation: 0=Trắng, 1=Xanh dương, 2=Xanh lá, 3=Đỏ, 4=Vàng [RGB: 255,255,0], 5=Tím, 6=Cam, 7=Xanh lơ/Cyan)
         """
         if not (0 <= color_index <= 255):
             return "Lỗi: Chỉ số màu phải nằm trong khoảng 0 - 255!"
@@ -109,22 +109,29 @@ def register_settings_tools(mcp):
 
         try:
             if view_number and 1 <= view_number <= app.Views.Count:
-                v = app.Views(view_number)
-                lvl.SetIsDisplayedInView(v, bool(is_displayed))
-                v.Redraw()
+                try:
+                    v = app.Views(view_number)
+                    lvl.SetIsDisplayedInView(v, bool(is_displayed))
+                    v.Redraw()
+                except Exception:
+                    action = "on" if is_displayed else "off"
+                    app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
+                    app.CadInputQueue.SendKeyin(f"view update {view_number}")
             else:
-                lvl.IsDisplayed = bool(is_displayed)
-                dgn.RewriteLevels()
-                for i in range(1, app.Views.Count + 1):
-                    try:
-                        app.Views(i).Redraw()
-                    except Exception:
-                        pass
+                try:
+                    lvl.IsDisplayed = bool(is_displayed)
+                    dgn.RewriteLevels()
+                except Exception:
+                    pass
+                action = "on" if is_displayed else "off"
+                app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
+                app.CadInputQueue.SendKeyin("update all")
+
             state_str = "Bật" if is_displayed else "Tắt"
             view_str = f" trong View {view_number}" if view_number else " trên tất cả View"
             return f"Đã {state_str} hiển thị cho Level '{level_name}'{view_str}."
         except Exception as ex:
-            # Fallback dùng Key-in
-            cmd = f"{'set levels on' if is_displayed else 'set levels off'} {level_name}"
-            app.CadInputQueue.SendKeyin(cmd)
-            return f"Đã gửi lệnh key-in thay đổi hiển thị Level '{level_name}'."
+            action = "on" if is_displayed else "off"
+            app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
+            app.CadInputQueue.SendKeyin("update all")
+            return f"Đã gửi lệnh key-in thay đổi hiển thị Level '{level_name}' ({action})."

@@ -102,12 +102,22 @@ def register_query_tools(mcp):
     def scan_elements(
         level: Optional[str] = None,
         element_type: Optional[str] = None,
+        min_x: Optional[float] = None,
+        min_y: Optional[float] = None,
+        max_x: Optional[float] = None,
+        max_y: Optional[float] = None,
         max_count: int = 300,
     ) -> List[Dict[str, Any]]:
         """
         Quét và lấy danh sách các phần tử trong bản vẽ MicroStation.
+        Hỗ trợ lọc nhanh theo phạm vi tọa độ (Bounding Box) để tìm kiếm tức thì trên bản đồ lớn.
+
         :param level: Lọc theo tên level (nếu None sẽ lấy tất cả)
         :param element_type: Lọc theo loại ('Line', 'LineString', 'Shape', 'Text', 'TextNode', 'Cell'...)
+        :param min_x: Tọa độ X nhỏ nhất của phạm vi cần quét
+        :param min_y: Tọa độ Y nhỏ nhất của phạm vi cần quét
+        :param max_x: Tọa độ X lớn nhất của phạm vi cần quét
+        :param max_y: Tọa độ Y lớn nhất của phạm vi cần quét
         :param max_count: Số lượng tối đa phần tử trả về (mặc định 300)
         """
         model = bridge.get_active_model()
@@ -129,6 +139,8 @@ def register_query_tools(mcp):
         }
         target_type_id = type_map.get(element_type.lower()) if element_type else None
 
+        has_spatial_filter = any(v is not None for v in (min_x, min_y, max_x, max_y))
+
         for idx in range(1, cache.Count + 1):
             try:
                 el = cache.GetElement(idx)
@@ -145,6 +157,22 @@ def register_query_tools(mcp):
             if target_type_id is not None and el_type != target_type_id:
                 continue
 
+            # Kiểm tra bộ lọc không gian trước để tăng tốc độ
+            el_rng = None
+            if has_spatial_filter:
+                try:
+                    el_rng = el.Range
+                    if min_x is not None and el_rng.High.X < min_x:
+                        continue
+                    if max_x is not None and el_rng.Low.X > max_x:
+                        continue
+                    if min_y is not None and el_rng.High.Y < min_y:
+                        continue
+                    if max_y is not None and el_rng.Low.Y > max_y:
+                        continue
+                except Exception:
+                    continue
+
             item = {
                 "id": str(getattr(el, "ID64", getattr(el, "ID", ""))),
                 "type": el_type,
@@ -152,6 +180,17 @@ def register_query_tools(mcp):
                 "color": getattr(el, "Color", None),
                 "weight": getattr(el, "LineWeight", None),
             }
+
+            try:
+                rng = el_rng if el_rng is not None else el.Range
+                item["bounding_box"] = {
+                    "min_x": round(rng.Low.X, 3),
+                    "min_y": round(rng.Low.Y, 3),
+                    "max_x": round(rng.High.X, 3),
+                    "max_y": round(rng.High.Y, 3),
+                }
+            except Exception:
+                pass
 
             if el_type == 17:  # Text
                 try:
@@ -180,6 +219,9 @@ def register_query_tools(mcp):
                     p1 = le.StartPoint
                     p2 = le.EndPoint
                     item["points"] = [[round(p1.X, 3), round(p1.Y, 3)], [round(p2.X, 3), round(p2.Y, 3)]]
+                except Exception:
+                    pass
+                try:
                     item["length"] = round(le.Length, 3)
                 except Exception:
                     pass
@@ -199,6 +241,9 @@ def register_query_tools(mcp):
                         v_raw = lse.GetVertices()
                         pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
                     item["points"] = pts
+                except Exception:
+                    pass
+                try:
                     item["length"] = round(lse.Length, 3)
                 except Exception:
                     pass
@@ -206,8 +251,18 @@ def register_query_tools(mcp):
                 try:
                     item["type_name"] = "Shape"
                     se = el.AsShapeElement()
-                    v_raw = se.GetVertices()
-                    item["points"] = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
+                    pts = []
+                    try:
+                        cnt = getattr(se, "VerticesCount", 0)
+                        for i in range(1, cnt + 1):
+                            v = se.Vertex(i)
+                            pts.append([round(v.X, 3), round(v.Y, 3)])
+                    except Exception:
+                        pass
+                    if not pts:
+                        v_raw = se.GetVertices()
+                        pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
+                    item["points"] = pts
                     item["area"] = round(se.Area, 3)
                     item["length"] = round(se.Perimeter, 3)
                 except Exception:

@@ -1,5 +1,14 @@
 import os
 import sys
+
+if sys.platform == "win32":
+    try:
+        import win32service
+        _d = win32service.OpenDesktop("Default", 0, False, 0x01FF)
+        _d.SetThreadDesktop()
+    except Exception:
+        pass
+
 import subprocess
 import winreg
 from typing import List, Optional, Tuple, Any
@@ -90,6 +99,14 @@ class MicroStationBridge:
         Lấy đối tượng MicroStationDGN.Application đang chạy.
         :param require_file: Nếu True, kiểm tra xem đã mở file DGN chưa. Nếu False, chỉ lấy đối tượng App.
         """
+        if sys.platform == "win32":
+            try:
+                import win32service
+                d = win32service.OpenDesktop("Default", 0, False, 0x01FF)
+                d.SetThreadDesktop()
+            except Exception:
+                pass
+
         # Bắt buộc phải CoInitialize trên mỗi thread worker của MCP/AnyIO
         try:
             pythoncom.CoInitialize()
@@ -98,10 +115,9 @@ class MicroStationBridge:
 
         app = None
 
-        # Cách 1: Thử ApplicationObjectConnector (chuyên kết nối tới phiên GUI đang mở)
+        # Cách 1: Thử GetActiveObject (kết nối trực tiếp phiên MicroStation đang mở trên màn hình)
         try:
-            connector = win32com.client.Dispatch("MicroStationDGN.ApplicationObjectConnector")
-            candidate = connector.Application
+            candidate = win32com.client.GetActiveObject("MicroStationDGN.Application")
             if candidate:
                 try:
                     if candidate.HasActiveDesignFile:
@@ -113,10 +129,11 @@ class MicroStationBridge:
         except Exception:
             pass
 
-        # Cách 2: Thử GetActiveObject
+        # Cách 2: Thử ApplicationObjectConnector
         if not app or not getattr(app, "HasActiveDesignFile", False):
             try:
-                candidate = win32com.client.GetActiveObject("MicroStationDGN.Application")
+                connector = win32com.client.Dispatch("MicroStationDGN.ApplicationObjectConnector")
+                candidate = connector.Application
                 if candidate:
                     try:
                         if candidate.HasActiveDesignFile:
@@ -128,6 +145,7 @@ class MicroStationBridge:
                         app = candidate
             except Exception:
                 pass
+
 
         # Cách 3: Thử Dispatch (kết nối tới instance đang chạy)
         if not app:
@@ -266,7 +284,10 @@ class MicroStationBridge:
 
         if level:
             try:
-                lvl_obj = dgn_file.Levels.Find(level)
+                try:
+                    lvl_obj = dgn_file.Levels(level)
+                except Exception:
+                    lvl_obj = dgn_file.Levels.Item(level)
                 if lvl_obj:
                     element.Level = lvl_obj
                 else:

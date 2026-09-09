@@ -167,7 +167,7 @@ def register_modify_tools(mcp):
         Hỗ trợ đối tượng Shape, ComplexShape hoặc tự động chuyển đổi/tạo Shape từ LineString khép kín.
 
         :param element_id: ID của phần tử cần đổ màu
-        :param fill_color: Chỉ số màu tô (0-255, mặc định 4 là màu vàng)
+        :param fill_color: Chỉ số màu tô (0-255, bảng màu chuẩn MicroStation: 0=Trắng, 1=Xanh dương, 2=Xanh lá, 3=Đỏ, 4=Vàng [RGB: 255,255,0], 5=Tím, 6=Cam, 7=Xanh lơ/Cyan)
         :param level: Tên Level mới cho đối tượng tô màu (nếu None sẽ giữ nguyên Level của đối tượng)
         :param keep_original: True nếu muốn giữ lại đường viền/đối tượng gốc ban đầu
         """
@@ -182,7 +182,7 @@ def register_modify_tools(mcp):
         # Bật hiển thị Fill trên View nếu chưa bật
         try:
             app.CadInputQueue.SendKeyin(
-                "vba execute Dim vi As Integer: For vi = 1 To 8: "
+                "vba execute On Error Resume Next: Dim vi As Integer: For vi = 1 To 8: "
                 "If ActiveDesignFile.Views(vi).IsOpen Then "
                 "ActiveDesignFile.Views(vi).DisplaysFill = True: "
                 "ActiveDesignFile.Views(vi).Redraw: "
@@ -204,9 +204,9 @@ def register_modify_tools(mcp):
                     dgn_file = bridge.get_active_file()
                     lvl_obj = dgn_file.Levels.Find(level)
                     if lvl_obj:
-                        el.Level = lvl_obj
-                el.Rewrite()
-                el.Redraw()
+                        closed_el.Level = lvl_obj
+                closed_el.Rewrite()
+                closed_el.Redraw()
                 filled_ok = True
             except Exception:
                 pass
@@ -215,9 +215,11 @@ def register_modify_tools(mcp):
                 try:
                     lvl_cmd = f'Dim oLvl As Level: Set oLvl = ActiveDesignFile.Levels("{level}"): Set oEl.Level = oLvl: ' if level else ""
                     app.CadInputQueue.SendKeyin(
-                        f"vba execute Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({element_id})): "
-                        f"If oEl.IsClosedElement Then oEl.AsClosedElement.FillMode = 1: oEl.AsClosedElement.FillColor = {int(fill_color)}: "
-                        f"{lvl_cmd}oEl.Rewrite: oEl.Redraw: End If"
+                        f"vba execute On Error Resume Next: Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({element_id})): "
+                        f"If oEl.IsClosedElement Then "
+                        f"Dim oC As ClosedElement: Set oC = oEl.AsClosedElement: "
+                        f"oC.FillMode = 1: oC.FillColor = {int(fill_color)}: "
+                        f"{lvl_cmd}oC.Rewrite: oC.Redraw: End If"
                     )
                     filled_ok = True
                 except Exception:
@@ -231,9 +233,17 @@ def register_modify_tools(mcp):
         try:
             if el_type == 4:
                 lse = el.AsLineStringElement()
-                raw = lse.GetVertices()
-                for p in raw:
-                    pts.append(bridge.create_point(p.X, p.Y, getattr(p, "Z", 0.0)))
+                try:
+                    cnt = getattr(lse, "VerticesCount", 0)
+                    for i in range(1, cnt + 1):
+                        v = lse.Vertex(i)
+                        pts.append(bridge.create_point(v.X, v.Y, getattr(v, "Z", 0.0)))
+                except Exception:
+                    pass
+                if not pts:
+                    raw = lse.GetVertices()
+                    for p in raw:
+                        pts.append(bridge.create_point(p.X, p.Y, getattr(p, "Z", 0.0)))
         except Exception:
             pass
 
@@ -277,11 +287,11 @@ def register_modify_tools(mcp):
 
         :param element_id: ID của phần tử cần chỉnh sửa
         :param level: Tên Level mới
-        :param color: Chỉ số màu mới (0-255)
+        :param color: Chỉ số màu mới (0-255, bảng màu chuẩn: 0=Trắng, 1=Xanh dương, 2=Xanh lá, 3=Đỏ, 4=Vàng [RGB: 255,255,0], 5=Tím, 6=Cam, 7=Xanh lơ/Cyan)
         :param weight: Độ dày nét mới (0-31)
         :param style: Kiểu nét mới (0-7)
         :param filled: True để bật chế độ tô màu, False để tắt
-        :param fill_color: Chỉ số màu tô (0-255)
+        :param fill_color: Chỉ số màu tô (0-255, bảng màu chuẩn: 0=Trắng, 1=Xanh dương, 2=Xanh lá, 3=Đỏ, 4=Vàng [RGB: 255,255,0], 5=Tím, 6=Cam, 7=Xanh lơ/Cyan)
         """
         el = bridge.find_element_by_id(element_id)
         if not el:
@@ -306,7 +316,7 @@ def register_modify_tools(mcp):
                 app = bridge.get_app()
                 fc_cmd = f"oEl.AsClosedElement.FillColor = {fcolor}: " if fill_color is not None else ""
                 app.CadInputQueue.SendKeyin(
-                    f"vba execute Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({el_id})): "
+                    f"vba execute On Error Resume Next: Dim oEl As Element: Set oEl = ActiveModelReference.GetElementByID(DLongFromLong({el_id})): "
                     f"If oEl.IsClosedElement Then oEl.AsClosedElement.FillMode = {fill_mode}: {fc_cmd}oEl.Rewrite: oEl.Redraw: End If"
                 )
             except Exception:

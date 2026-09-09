@@ -200,3 +200,272 @@ def register_file_model_tools(mcp):
             return f"Không tìm thấy reference có tên '{logical_name}'."
         except Exception as ex:
             return f"Lỗi khi gỡ bỏ reference: {ex}"
+
+    @mcp.tool
+    def scan_reference_elements(
+        reference_name: Optional[str] = None,
+        level: Optional[str] = None,
+        element_type: Optional[str] = None,
+        max_count: int = 300,
+    ) -> List[Dict[str, Any]]:
+        """
+        Quét và lấy danh sách các phần tử hình học, ranh giới, chữ bên trong các file bản vẽ tham chiếu (Reference Files / Xrefs) đang được đính kèm.
+
+        :param reference_name: Tên file tham chiếu hoặc Logical Name (nếu None sẽ quét tất cả file tham chiếu đang đính kèm và hiển thị)
+        :param level: Lọc theo tên level (nếu None sẽ lấy tất cả)
+        :param element_type: Lọc theo loại ('Line', 'LineString', 'Shape', 'Text', 'TextNode', 'Cell'...)
+        :param max_count: Số lượng tối đa phần tử trả về (mặc định 300)
+        """
+        model = bridge.get_active_model()
+        results = []
+        count = 0
+
+        type_map = {
+            "line": 3,
+            "linestring": 4,
+            "shape": 6,
+            "textnode": 7,
+            "complexstring": 12,
+            "complexshape": 14,
+            "ellipse": 15,
+            "arc": 16,
+            "text": 17,
+            "cell": 2,
+        }
+        target_type_id = type_map.get(element_type.lower()) if element_type else None
+
+        try:
+            attachments = model.Attachments
+            for i in range(1, attachments.Count + 1):
+                try:
+                    att = attachments.Item(i)
+                except Exception:
+                    continue
+
+                if not att:
+                    continue
+
+                attach_name = getattr(att, "AttachName", "")
+                logical_name = getattr(att, "LogicalName", "")
+
+                if reference_name:
+                    ref_query = str(reference_name).lower()
+                    if ref_query not in attach_name.lower() and ref_query not in logical_name.lower():
+                        continue
+
+                if not reference_name and not getattr(att, "IsDisplayed", True):
+                    continue
+
+                # Quét phần tử qua Scan() hoặc GraphicalElementCache
+                ee = None
+                try:
+                    ee = att.Scan()
+                except Exception:
+                    pass
+
+                if ee:
+                    while ee.MoveNext():
+                        try:
+                            el = ee.Current
+                        except Exception:
+                            continue
+                        if not el:
+                            continue
+
+                        lvl_name = el.Level.Name if el.Level else ""
+                        if level and lvl_name.lower() != str(level).lower():
+                            continue
+
+                        el_type = int(el.Type)
+                        if target_type_id is not None and el_type != target_type_id:
+                            continue
+
+                        item = {
+                            "reference_file": attach_name,
+                            "id": str(getattr(el, "ID64", getattr(el, "ID", ""))),
+                            "type": el_type,
+                            "level": lvl_name,
+                            "color": getattr(el, "Color", None),
+                            "weight": getattr(el, "LineWeight", None),
+                        }
+
+                        try:
+                            rng = el.Range
+                            item["bounding_box"] = {
+                                "min_x": round(rng.Low.X, 3),
+                                "min_y": round(rng.Low.Y, 3),
+                                "max_x": round(rng.High.X, 3),
+                                "max_y": round(rng.High.Y, 3),
+                            }
+                        except Exception:
+                            pass
+
+                        if el_type == 17:  # Text
+                            try:
+                                item["type_name"] = "Text"
+                                item["text"] = el.AsTextElement().Text
+                                pt = el.AsTextElement().Origin
+                                item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
+                            except Exception:
+                                pass
+                        elif el_type == 7:  # TextNode
+                            try:
+                                item["type_name"] = "TextNode"
+                                lines = []
+                                tne = el.AsTextNodeElement()
+                                for li in range(1, tne.TextLinesCount + 1):
+                                    lines.append(tne.TextLine(li))
+                                item["text"] = "\n".join(lines)
+                                pt = tne.Origin
+                                item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
+                            except Exception:
+                                pass
+                        elif el_type == 3:  # Line
+                            try:
+                                item["type_name"] = "Line"
+                                le = el.AsLineElement()
+                                p1 = le.StartPoint
+                                p2 = le.EndPoint
+                                item["points"] = [[round(p1.X, 3), round(p1.Y, 3)], [round(p2.X, 3), round(p2.Y, 3)]]
+                                item["length"] = round(le.Length, 3)
+                            except Exception:
+                                pass
+                        elif el_type == 4:  # LineString
+                            try:
+                                item["type_name"] = "LineString"
+                                lse = el.AsLineStringElement()
+                                pts = []
+                                try:
+                                    cnt = getattr(lse, "VerticesCount", 0)
+                                    for vi in range(1, cnt + 1):
+                                        v = lse.Vertex(vi)
+                                        pts.append([round(v.X, 3), round(v.Y, 3)])
+                                except Exception:
+                                    pass
+                                if not pts:
+                                    v_raw = lse.GetVertices()
+                                    pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
+                                item["points"] = pts
+                                item["length"] = round(lse.Length, 3)
+                            except Exception:
+                                pass
+                        elif el_type == 6:  # Shape
+                            try:
+                                item["type_name"] = "Shape"
+                                se = el.AsShapeElement()
+                                pts = []
+                                try:
+                                    cnt = getattr(se, "VerticesCount", 0)
+                                    for vi in range(1, cnt + 1):
+                                        v = se.Vertex(vi)
+                                        pts.append([round(v.X, 3), round(v.Y, 3)])
+                                except Exception:
+                                    pass
+                                if not pts:
+                                    v_raw = se.GetVertices()
+                                    pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
+                                item["points"] = pts
+                                item["area"] = round(se.Area, 3)
+                                item["length"] = round(se.Perimeter, 3)
+                            except Exception:
+                                pass
+                        elif el_type == 14:  # ComplexShape
+                            try:
+                                item["type_name"] = "ComplexShape"
+                                item["area"] = round(el.AsClosedElement().Area, 3)
+                            except Exception:
+                                pass
+                        elif el_type == 12:  # ComplexString
+                            try:
+                                item["type_name"] = "ComplexString"
+                                item["length"] = round(el.AsOpenElement().Length, 3)
+                            except Exception:
+                                pass
+                        elif el_type == 2:  # Cell
+                            try:
+                                item["type_name"] = "Cell"
+                                item["cell_name"] = el.AsCellElement().Name
+                            except Exception:
+                                pass
+                        else:
+                            item["type_name"] = f"Type_{el_type}"
+
+                        results.append(item)
+                        count += 1
+                        if count >= max_count:
+                            return results
+
+                elif hasattr(att, "GraphicalElementCache"):
+                    cache = att.GraphicalElementCache
+                    for idx in range(1, cache.Count + 1):
+                        try:
+                            el = cache.GetElement(idx)
+                        except Exception:
+                            continue
+                        if not el:
+                            continue
+                        lvl_name = el.Level.Name if el.Level else ""
+                        if level and lvl_name.lower() != str(level).lower():
+                            continue
+                        el_type = int(el.Type)
+                        if target_type_id is not None and el_type != target_type_id:
+                            continue
+                        item = {
+                            "reference_file": attach_name,
+                            "id": str(getattr(el, "ID64", getattr(el, "ID", ""))),
+                            "type": el_type,
+                            "level": lvl_name,
+                            "color": getattr(el, "Color", None),
+                            "weight": getattr(el, "LineWeight", None),
+                        }
+                        results.append(item)
+                        count += 1
+                        if count >= max_count:
+                            return results
+        except Exception as ex:
+            return [{"error": f"Lỗi khi quét phần tử trong reference: {ex}"}]
+
+        return results
+
+    @mcp.tool
+    def get_reference_levels(reference_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Lấy danh sách các Level (lớp bản vẽ) và trạng thái hiển thị của file bản vẽ tham chiếu (Reference File / Xref).
+
+        :param reference_name: Tên file tham chiếu hoặc Logical Name (nếu None sẽ lấy file tham chiếu đầu tiên)
+        """
+        model = bridge.get_active_model()
+        levels_list = []
+
+        try:
+            attachments = model.Attachments
+            for i in range(1, attachments.Count + 1):
+                att = attachments.Item(i)
+                attach_name = getattr(att, "AttachName", "")
+                logical_name = getattr(att, "LogicalName", "")
+
+                if reference_name:
+                    ref_query = str(reference_name).lower()
+                    if ref_query not in attach_name.lower() and ref_query not in logical_name.lower():
+                        continue
+
+                try:
+                    levels = att.Levels
+                    for li in range(1, levels.Count + 1):
+                        lvl = levels.Item(li)
+                        levels_list.append({
+                            "reference_file": attach_name,
+                            "name": lvl.Name,
+                            "number": getattr(lvl, "Number", li),
+                            "is_displayed": getattr(lvl, "IsDisplayed", True),
+                        })
+                except Exception:
+                    pass
+
+                if reference_name or len(levels_list) > 0:
+                    break
+        except Exception as ex:
+            return [{"error": f"Lỗi khi đọc levels của reference: {ex}"}]
+
+        return levels_list
+

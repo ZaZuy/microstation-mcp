@@ -20,12 +20,14 @@ def register_view_tools(mcp):
         """
         app = bridge.get_app()
         try:
-            if 1 <= view_number <= app.Views.Count:
-                app.Views(view_number).Fit(True)
-                app.Views(view_number).Redraw()
+            dgn = bridge.get_active_file()
+            if 1 <= view_number <= dgn.Views.Count:
+                dgn.Views(view_number).Fit(True)
+                dgn.Views(view_number).Redraw()
                 return f"Đã căn toàn màn hình cho View {view_number}."
         except Exception:
             pass
+
 
         # Fallback dùng Key-in
         app.CadInputQueue.SendKeyin(f"fit view {view_number}")
@@ -113,17 +115,20 @@ def register_view_tools(mcp):
 
         :param view_number: Số hiệu View (1 đến 8)
         """
-        app = bridge.get_app()
-        if not (1 <= view_number <= app.Views.Count):
-            return {"error": f"View số {view_number} không hợp lệ!"}
+        try:
+            dgn = bridge.get_active_file()
+            if not (1 <= view_number <= dgn.Views.Count):
+                return {"error": f"View số {view_number} không hợp lệ!"}
 
-        v = app.Views(view_number)
-        return {
-            "view_number": view_number,
-            "is_open": bool(v.IsOpen),
-            "origin": [round(v.Origin.X, 3), round(v.Origin.Y, 3), round(v.Origin.Z, 3)],
-            "extents": [round(v.Extents.X, 3), round(v.Extents.Y, 3), round(v.Extents.Z, 3)],
-        }
+            v = dgn.Views(view_number)
+            return {
+                "view_number": view_number,
+                "is_open": bool(v.IsOpen),
+                "origin": [round(v.Origin.X, 3), round(v.Origin.Y, 3), round(v.Origin.Z, 3)],
+                "extents": [round(v.Extents.X, 3), round(v.Extents.Y, 3), round(v.Extents.Z, 3)],
+            }
+        except Exception as ex:
+            return {"error": f"Lỗi khi đọc thông tin View: {ex}"}
 
     @mcp.tool
     def capture_view_image(output_path: str, view_number: int = 1) -> str:
@@ -144,8 +149,10 @@ def register_view_tools(mcp):
             import win32con
             from PIL import Image
 
-            v = app.Views(view_number)
+            dgn = bridge.get_active_file()
+            v = dgn.Views(view_number)
             hwnd = int(getattr(v, "HWND", 0))
+
             if hwnd:
                 left, top, right, bot = win32gui.GetClientRect(hwnd)
                 w = right - left

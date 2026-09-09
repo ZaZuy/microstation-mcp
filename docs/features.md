@@ -70,8 +70,11 @@ MCP Server cung cấp đầy đủ **62 công cụ CAD chuyên nghiệp**, chia 
 - `get_references()`: Liệt kê danh sách các file Reference (Xref) đính kèm.
 - `attach_reference(file_path, model_name="Default", logical_name=None)`: Đính kèm file tham chiếu.
 - `detach_reference(logical_name)`: Gỡ bỏ file tham chiếu.
+- `scan_reference_elements(reference_name=None, level=None, element_type=None, max_count=300)`: Quét và bóc tách dữ liệu các đối tượng đồ họa bên trong file tham chiếu (Line, LineString, Shape, Text...).
+- `get_reference_levels(reference_name=None)`: Liệt kê các Level và trạng thái hiển thị của file tham chiếu.
 
 ---
+
 
 ## 7. Nhóm Xử Lý Hàng Loạt (3 Tools - `src/tools/batch.py`)
 - `batch_draw_points(points, level, color, weight=5)`: Vẽ hàng loạt điểm mốc từ danh sách tọa độ.

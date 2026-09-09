@@ -97,59 +97,108 @@ def register_text_tools(mcp):
         return f"Đã đặt khối text gồm {len(lines)} dòng tại ({x}, {y})"
 
     @mcp.tool
-    def find_text(keyword: str, case_sensitive: bool = False) -> List[Dict[str, Any]]:
+    def find_text(
+        keyword: str,
+        case_sensitive: bool = False,
+        search_references: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
-        Tìm kiếm tất cả các phần tử Text hoặc TextNode chứa chuỗi từ khóa trong bản vẽ.
+        Tìm kiếm tất cả các phần tử Text, TextNode hoặc Text nằm trong Cell (nhãn số thửa đất) chứa chuỗi từ khóa.
 
-        :param keyword: Từ khóa cần tìm kiếm
+        :param keyword: Từ khóa cần tìm kiếm (ví dụ: '148', '19', 'Đất ở')
         :param case_sensitive: Phân biệt chữ hoa/thường (mặc định False)
+        :param search_references: Tìm kiếm trong cả các file Reference đang đính kèm (mặc định False)
         """
+        app = bridge.get_app()
         model = bridge.get_active_model()
-        cache = model.GraphicalElementCache
         results = []
         target_kw = keyword if case_sensitive else keyword.lower()
 
-        for idx in range(1, cache.Count + 1):
+        models_to_search = [("Active", model)]
+        if search_references:
             try:
-                el = cache.GetElement(idx)
+                attachments = model.Attachments
+                for i in range(1, attachments.Count + 1):
+                    try:
+                        att = attachments.Item(i)
+                        models_to_search.append((f"Ref:{getattr(att, 'AttachName', f'Ref_{i}')}", att))
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        for source_name, m in models_to_search:
+            try:
+                cache = m.GraphicalElementCache
             except Exception:
                 continue
-            if not el:
-                continue
 
-            el_type = int(el.Type)
-            text_val = ""
-            origin = [0.0, 0.0]
-
-            if el_type == 17:  # Text
+            for idx in range(1, cache.Count + 1):
                 try:
-                    te = el.AsTextElement()
-                    text_val = te.Text
-                    pt = te.Origin
-                    origin = [round(pt.X, 3), round(pt.Y, 3)]
+                    el = cache.GetElement(idx)
                 except Exception:
                     continue
-            elif el_type == 7:  # TextNode
-                try:
-                    tne = el.AsTextNodeElement()
-                    lines = [tne.TextLine(i) for i in range(1, tne.TextLinesCount + 1)]
-                    text_val = "\n".join(lines)
-                    pt = tne.Origin
-                    origin = [round(pt.X, 3), round(pt.Y, 3)]
-                except Exception:
+                if not el:
                     continue
-            else:
-                continue
 
-            check_val = text_val if case_sensitive else text_val.lower()
-            if target_kw in check_val:
-                results.append({
-                    "id": str(getattr(el, "ID64", getattr(el, "ID", ""))),
-                    "type": "Text" if el_type == 17 else "TextNode",
-                    "text": text_val,
-                    "origin": origin,
-                    "level": el.Level.Name if el.Level else "",
-                })
+                el_type = int(el.Type)
+                text_val = ""
+                origin = [0.0, 0.0]
+                type_name = "Text"
+
+                if el_type == 17:  # Text
+                    try:
+                        te = el.AsTextElement()
+                        text_val = te.Text
+                        pt = te.Origin
+                        origin = [round(pt.X, 3), round(pt.Y, 3)]
+                        type_name = "Text"
+                    except Exception:
+                        continue
+                elif el_type == 7:  # TextNode
+                    try:
+                        tne = el.AsTextNodeElement()
+                        lines = [tne.TextLine(i) for i in range(1, tne.TextLinesCount + 1)]
+                        text_val = "\n".join(lines)
+                        pt = tne.Origin
+                        origin = [round(pt.X, 3), round(pt.Y, 3)]
+                        type_name = "TextNode"
+                    except Exception:
+                        continue
+                elif el_type in (2, 34):  # Cell hoặc SharedCell (nhãn số thửa, diện tích địa chính)
+                    try:
+                        ce = el.AsCellElement()
+                        sub_ee = ce.GetSubElements()
+                        cell_texts = []
+                        while sub_ee.MoveNext():
+                            sub_el = sub_ee.Current
+                            stype = int(sub_el.Type)
+                            if stype == 17:
+                                cell_texts.append(sub_el.AsTextElement().Text)
+                            elif stype == 7:
+                                stne = sub_el.AsTextNodeElement()
+                                for li in range(1, stne.TextLinesCount + 1):
+                                    cell_texts.append(stne.TextLine(li))
+                        if cell_texts:
+                            text_val = " / ".join(cell_texts)
+                            pt = ce.Origin
+                            origin = [round(pt.X, 3), round(pt.Y, 3)]
+                            type_name = "Cell"
+                    except Exception:
+                        continue
+                else:
+                    continue
+
+                check_val = text_val if case_sensitive else text_val.lower()
+                if target_kw in check_val:
+                    results.append({
+                        "id": str(getattr(el, "ID64", getattr(el, "ID", ""))),
+                        "source": source_name,
+                        "type": type_name,
+                        "text": text_val,
+                        "origin": origin,
+                        "level": el.Level.Name if el.Level else "",
+                    })
 
         return results
 

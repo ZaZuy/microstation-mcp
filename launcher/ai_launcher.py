@@ -106,96 +106,130 @@ except ImportError:
 
 
 def get_mcp_server_entry():
-    """Xác định command và args chính xác cho MCP server (Hợp nhất vào Vigela_AI_App.exe --mcp)."""
-    # 1. Nếu đang chạy dạng frozen exe (Vigela_AI_App.exe):
-    if getattr(sys, "frozen", False):
-        exe_path = os.path.abspath(sys.executable)
-        return {
-            "command": exe_path,
-            "args": ["--mcp"],
-            "autoApprove": ["*"],
-        }
-
-    # 2. Tìm file Vigela_AI_App.exe (bản hợp nhất)
-    app_candidates = [
-        os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\Vigela_AI_App.exe"),
-        os.path.join(PROJECT_ROOT, "dist", "Vigela_AI_App.exe"),
-        os.path.join(INSTALL_DIR, "Vigela_AI_App.exe"),
-        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "Vigela_AI_App.exe"),
-        # Tương thích ngược nếu còn file Vigela_MCP_Server.exe
+    """Xác định command và args chính xác cho MCP server.
+    Ưu tiên dùng Vigela_MCP_Server.exe standalone để hoạt động trên mọi máy tính (kể cả máy chưa cài Python).
+    """
+    # 1. Ưu tiên: Vigela_MCP_Server.exe standalone trong thư mục cài đặt
+    mcp_exe_candidates = [
         os.path.join(INSTALL_DIR, "Vigela_MCP_Server.exe"),
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\Vigela_MCP_Server.exe"),
+        os.path.join(PROJECT_ROOT, "dist", "Vigela_MCP_Server.exe"),
     ]
-    for cand in app_candidates:
+    for cand in mcp_exe_candidates:
         if os.path.exists(cand):
-            args = ["--mcp"] if "Vigela_AI_App" in cand else []
             return {
-                "command": cand,
-                "args": args,
+                "command": os.path.normpath(cand),
+                "args": [],
                 "autoApprove": [
                     "*"
                 ],
             }
 
-    # 3. Fallback: dùng python + src/main.py trong INSTALL_DIR hoặc PROJECT_ROOT
+    # 2. Fallback: dùng Python nếu máy có sẵn Python và mã nguồn
     main_py_candidates = [
         os.path.join(INSTALL_DIR, "src", "main.py"),
         os.path.join(PROJECT_ROOT, "src", "main.py"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\src\main.py"),
     ]
     main_py = None
     for cand in main_py_candidates:
         if os.path.exists(cand):
             main_py = cand
             break
-    if not main_py:
-        main_py = main_py_candidates[0]
 
+    py_exe = PYTHON_EXE or find_python_executable()
+    if py_exe and os.path.exists(py_exe) and main_py:
+        return {
+            "command": os.path.normpath(py_exe),
+            "args": ["-X", "utf8", os.path.normpath(main_py)],
+            "autoApprove": [
+                "*"
+            ],
+        }
+
+    # 3. Fallback cuối cùng
     return {
-        "command": PYTHON_EXE,
-        "args": ["-X", "utf8", main_py],
+        "command": "python",
+        "args": ["-X", "utf8", main_py or "src/main.py"],
         "autoApprove": [
             "*"
         ],
     }
 
 
+
+
 def ensure_mcp_configs():
-    """Tự động đồng bộ cấu hình MCP MicroStation cho các App AI."""
+    """Tự động đồng bộ cấu hình MCP MicroStation đa tầng cho Antigravity & Claude."""
     mcp_entry = get_mcp_server_entry()
 
-    # 1. Antigravity config
-    gemini_config_dir = os.path.expanduser(r"~/.gemini/config")
-    gemini_config_file = os.path.join(gemini_config_dir, "mcp_config.json")
-    try:
-        os.makedirs(gemini_config_dir, exist_ok=True)
-        data = {}
-        if os.path.exists(gemini_config_file):
-            with open(gemini_config_file, "r", encoding="utf-8-sig") as f:
-                data = json.load(f)
-        if "mcpServers" not in data:
-            data["mcpServers"] = {}
-        data["mcpServers"]["microstation-v8i"] = mcp_entry
-        with open(gemini_config_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"Lỗi cấu hình Antigravity: {e}", file=sys.stderr)
+    # 1. Thu thập tất cả thư mục User Profile khả dĩ
+    user_roots = set()
+    up = os.environ.get("USERPROFILE")
+    if up and os.path.exists(up):
+        user_roots.add(os.path.normpath(up))
+    home = os.path.expanduser("~")
+    if home and os.path.exists(home):
+        user_roots.add(os.path.normpath(home))
+    users_dir = os.path.dirname(up) if up else r"C:\Users"
+    if os.path.exists(users_dir):
+        try:
+            for item in os.listdir(users_dir):
+                p = os.path.join(users_dir, item)
+                if os.path.isdir(p) and item.lower() not in ["public", "default", "default user", "all users"]:
+                    user_roots.add(os.path.normpath(p))
+        except Exception:
+            pass
 
-    # 2. Claude Desktop config
-    claude_config_dir = os.path.expandvars(r"%APPDATA%\Claude")
-    claude_config_file = os.path.join(claude_config_dir, "claude_desktop_config.json")
-    try:
-        os.makedirs(claude_config_dir, exist_ok=True)
-        data = {}
-        if os.path.exists(claude_config_file):
-            with open(claude_config_file, "r", encoding="utf-8-sig") as f:
-                data = json.load(f)
-        if "mcpServers" not in data:
-            data["mcpServers"] = {}
-        data["mcpServers"]["microstation-v8i"] = mcp_entry
-        with open(claude_config_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"Lỗi cấu hình Claude Desktop: {e}", file=sys.stderr)
+    # 2. Antigravity config (mọi vị trí tìm kiếm của Antigravity)
+    ag_paths = set()
+    for u in user_roots:
+        ag_paths.add(os.path.join(u, ".gemini", "config", "mcp_config.json"))
+        ag_paths.add(os.path.join(u, ".gemini", "mcp_config.json"))
+        ag_paths.add(os.path.join(u, "AppData", "Roaming", "Antigravity", "mcp_config.json"))
+        ag_paths.add(os.path.join(u, "AppData", "Roaming", "antigravity", "mcp_config.json"))
+        ag_paths.add(os.path.join(u, "AppData", "Local", "antigravity", "mcp_config.json"))
+
+    for cfg_path in ag_paths:
+        try:
+            os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+            data = {}
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            if "mcpServers" not in data or not isinstance(data.get("mcpServers"), dict):
+                data["mcpServers"] = {}
+            data["mcpServers"]["microstation-v8i"] = mcp_entry
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Lỗi cấu hình Antigravity tại {cfg_path}: {e}", file=sys.stderr)
+
+    # 3. Claude Desktop config
+    claude_paths = set()
+    for u in user_roots:
+        claude_paths.add(os.path.join(u, "AppData", "Roaming", "Claude", "claude_desktop_config.json"))
+
+    for cfg_path in claude_paths:
+        try:
+            os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+            data = {}
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            if "mcpServers" not in data or not isinstance(data.get("mcpServers"), dict):
+                data["mcpServers"] = {}
+            data["mcpServers"]["microstation-v8i"] = mcp_entry
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Lỗi cấu hình Claude Desktop tại {cfg_path}: {e}", file=sys.stderr)
 
 
 def get_running_process_names():
@@ -896,6 +930,21 @@ class LauncherGUI:
 
 
 def main():
+    if "--mcp" in sys.argv or (len(sys.argv) > 1 and sys.argv[1] in ("--transport", "stdio", "--port", "--host")):
+        target_exe = os.path.join(INSTALL_DIR, "Vigela_MCP_Server.exe")
+        if os.path.exists(target_exe):
+            args = [target_exe] + [a for a in sys.argv[1:] if a != "--mcp"]
+            p = subprocess.Popen(args)
+            sys.exit(p.wait())
+        else:
+            try:
+                from src.main import main as mcp_main
+                mcp_main()
+                sys.exit(0)
+            except Exception as e:
+                print(f"Lỗi khởi động MCP Server: {e}", file=sys.stderr)
+                sys.exit(1)
+
     ensure_mcp_configs()
 
     if "--launch-best" in sys.argv:
