@@ -583,259 +583,403 @@ def register_drawing_tools(mcp):
         )
 
     @mcp.tool
-    def copy_reference_parcel(
-        seed_x: float,
-        seed_y: float,
-        reference_file: Optional[str] = None,
-        target_level: str = "Level 11",
-        color: int = 3,
-        weight: int = 2,
-        fill_color: Optional[int] = 3,
-        label_text: Optional[str] = None,
-        search_radius: float = 25.0,
+    def draw_smartline(
+        points: List[List[float]],
+        vertex_type: str = "sharp",
+        rounding_radius: float = 0.0,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+        weight: Optional[int] = None,
+        style: Optional[int] = None,
     ) -> str:
         """
-        Sao chép và tạo Region ranh giới thửa đất từ file Reference đang đính kèm vào thẳng file hiện hành mà không cần đổi file.
-        Xử lý tức thì (< 1 giây), không làm gián đoạn màn hình, tự động đóng kín các đoạn thẳng rời rạc thành Shape khép kín.
+        Vẽ đường thông minh SmartLine (Place SmartLine) qua các đỉnh với tùy chọn góc nhọn hoặc bo tròn.
+        Tương ứng với công cụ 'Place SmartLine' trong Tool Box Linear Elements.
 
-        :param seed_x: Tọa độ X của điểm nằm bên trong thửa đất
-        :param seed_y: Tọa độ Y của điểm nằm bên trong thửa đất
-        :param reference_file: Đường dẫn hoặc tên file Reference (nếu None sẽ tự động lấy file tham chiếu đang đính kèm)
-        :param target_level: Level lưu hình thửa mới trên file hiện hành (mặc định 'Level 11')
-        :param color: Chỉ số màu đường viền (mặc định 3 - Đỏ)
-        :param weight: Độ dày nét vẽ (mặc định 2)
-        :param fill_color: Chỉ số màu tô nền (mặc định 3 - Đỏ, None nếu rỗng)
-        :param label_text: Nhãn ghi chú đặt vào tâm thửa (nếu có)
-        :param search_radius: Bán kính tìm kiếm quanh điểm hạt giống (mặc định 25m)
+        :param points: Danh sách tọa độ đỉnh [[x1, y1], [x2, y2], ...]
+        :param vertex_type: Loại góc ('sharp' - nhọn, 'rounded' - bo tròn, 'chamfer' - vát góc)
+        :param rounding_radius: Bán kính bo góc nếu vertex_type='rounded'
+        :param level: Tên Level
+        :param color: Chỉ số màu
+        :param weight: Độ dày nét
+        :param style: Kiểu nét
         """
+        if len(points) < 2:
+            return "Lỗi: Cần tối thiểu 2 điểm để vẽ SmartLine!"
+
         app = bridge.get_app()
-        active_dgn = bridge.get_active_file()
-        active_model = bridge.get_active_model()
+        if vertex_type.lower() == "rounded" and rounding_radius > 0:
+            try:
+                app.CadInputQueue.SendKeyin(f"place smartline rounded {rounding_radius}")
+                for pt in points:
+                    z = pt[2] if len(pt) > 2 else 0.0
+                    app.CadInputQueue.SendDataPoint(bridge.create_point(pt[0], pt[1], z), 1)
+                app.CadInputQueue.SendReset()
+                return f"Đã vẽ SmartLine bo tròn R={rounding_radius} qua {len(points)} điểm"
+            except Exception:
+                pass
 
-        # 1. Xác định đường dẫn file reference
-        ref_path = None
-        cur_dir = os.path.dirname(getattr(active_dgn, "FullName", ""))
-        if reference_file:
-            if os.path.isabs(reference_file) and os.path.exists(reference_file):
-                ref_path = reference_file
-            elif cur_dir:
-                cand = os.path.join(cur_dir, os.path.basename(reference_file))
-                if os.path.exists(cand):
-                    ref_path = cand
+        pt_objs = [bridge.create_point(p[0], p[1], p[2] if len(p) > 2 else 0.0) for p in points]
+        is_closed = math.hypot(points[0][0] - points[-1][0], points[0][1] - points[-1][1]) < 1e-4 and len(points) >= 4
 
-        if not ref_path:
-            attachments = active_model.Attachments
-            for i in range(1, attachments.Count + 1):
-                try:
-                    att = attachments.Item(i)
-                    aname = getattr(att, "AttachName", "")
-                    if cur_dir:
-                        cand = os.path.join(cur_dir, os.path.basename(aname))
-                        if os.path.exists(cand):
-                            ref_path = cand
-                            break
-                    if os.path.exists(aname):
-                        ref_path = aname
-                        break
-                except Exception:
-                    continue
+        if is_closed:
+            el = bridge.unwrap(app.CreateShapeElement1(None, pt_objs))
+        else:
+            el = bridge.unwrap(app.CreateLineStringElement1(None, pt_objs))
 
-        if not ref_path or not os.path.exists(ref_path):
-            return "Lỗi: Không tìm thấy file tham chiếu (Reference) nào đang đính kèm hoặc đường dẫn không hợp lệ!"
+        bridge.apply_symbology(el, level=level, color=color, weight=weight, style=style)
+        bridge.add_element(el)
+        return f"Đã vẽ SmartLine qua {len(points)} điểm ({'khép kín' if is_closed else 'hở'})"
 
-        # 2. Đọc các đoạn ranh giới từ file reference ở chế độ nền (Background)
-        bg_dgn = None
-        segments = []
+    @mcp.tool
+    def draw_multiline(
+        points: List[List[float]],
+        style_name: Optional[str] = None,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+        weight: Optional[int] = None,
+    ) -> str:
+        """
+        Vẽ đường song song phức hợp Multi-line (Place Multi-line).
+        Tương ứng với công cụ 'Place Multi-line' trong Tool Box Linear Elements.
+
+        :param points: Danh sách tọa độ đỉnh [[x1, y1], [x2, y2], ...]
+        :param style_name: Tên kiểu Multi-line style đã định nghĩa
+        :param level: Tên Level
+        :param color: Chỉ số màu
+        :param weight: Độ dày nét
+        """
+        if len(points) < 2:
+            return "Lỗi: Cần tối thiểu 2 điểm để vẽ Multi-line!"
+
+        app = bridge.get_app()
         try:
-            bg_dgn = app.OpenDesignFileForProgram(ref_path, True)
-            bg_model = bg_dgn.DefaultModelReference
-            cache = bg_model.GraphicalElementCache
+            if level:
+                app.CadInputQueue.SendKeyin(f"lv={level}")
+            if color is not None:
+                app.CadInputQueue.SendKeyin(f"co={color}")
+            if weight is not None:
+                app.CadInputQueue.SendKeyin(f"wt={weight}")
+            if style_name:
+                app.CadInputQueue.SendKeyin(f'active mlstyle "{style_name}"')
 
-            min_x = seed_x - search_radius
-            max_x = seed_x + search_radius
-            min_y = seed_y - search_radius
-            max_y = seed_y + search_radius
+            app.CadInputQueue.SendKeyin("place multiline")
+            for pt in points:
+                z = pt[2] if len(pt) > 2 else 0.0
+                app.CadInputQueue.SendDataPoint(bridge.create_point(pt[0], pt[1], z), 1)
+            app.CadInputQueue.SendReset()
+            return f"Đã vẽ Multi-line qua {len(points)} điểm"
+        except Exception as ex:
+            return f"Lỗi khi vẽ Multi-line: {ex}"
 
-            for idx in range(1, cache.Count + 1):
-                try:
-                    el = cache.GetElement(idx)
-                    if not el:
-                        continue
-                    rng = el.Range
-                    if rng.High.X < min_x or rng.Low.X > max_x or rng.High.Y < min_y or rng.Low.Y > max_y:
-                        continue
+    @mcp.tool
+    def draw_orthogonal_shape(
+        points: List[List[float]],
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+        weight: Optional[int] = None,
+        style: Optional[int] = None,
+        fill_color: Optional[int] = None,
+    ) -> str:
+        """
+        Vẽ đa giác góc vuông (Orthogonal Shape).
+        Tương ứng với công cụ 'Place Orthogonal Shape' trong Tool Box Polygons.
 
-                    el_type = int(el.Type)
-                    if el_type == 3:  # Line
-                        le = el.AsLineElement()
-                        p1 = (round(le.StartPoint.X, 3), round(le.StartPoint.Y, 3))
-                        p2 = (round(le.EndPoint.X, 3), round(le.EndPoint.Y, 3))
-                        segments.append((p1, p2))
-                    elif el_type == 4:  # LineString
-                        lse = el.AsLineStringElement()
-                        pts_ls = []
-                        try:
-                            vcount = getattr(lse, "VerticesCount", 0)
-                            for vi in range(1, vcount + 1):
-                                pt = lse.Vertex(vi)
-                                pts_ls.append((round(pt.X, 3), round(pt.Y, 3)))
-                        except Exception:
-                            pass
-                        if not pts_ls:
-                            raw = lse.GetVertices()
-                            pts_ls = [(round(p.X, 3), round(p.Y, 3)) for p in raw]
-                        for vi in range(len(pts_ls) - 1):
-                            segments.append((pts_ls[vi], pts_ls[vi + 1]))
-                    elif el_type == 6:  # Shape
-                        se = el.AsShapeElement()
-                        pts_s = []
-                        try:
-                            vcount = getattr(se, "VerticesCount", 0)
-                            for vi in range(1, vcount + 1):
-                                pt = se.Vertex(vi)
-                                pts_s.append((round(pt.X, 3), round(pt.Y, 3)))
-                        except Exception:
-                            pass
-                        if not pts_s:
-                            raw = se.GetVertices()
-                            pts_s = [(round(p.X, 3), round(p.Y, 3)) for p in raw]
-                        for vi in range(len(pts_s) - 1):
-                            segments.append((pts_s[vi], pts_s[vi + 1]))
-                except Exception:
-                    continue
-        finally:
-            if bg_dgn:
-                try:
-                    bg_dgn.Close()
-                except Exception:
-                    pass
+        :param points: Danh sách các đỉnh góc vuông [[x1, y1], [x2, y2], ...]
+        :param level: Tên Level
+        :param color: Chỉ số màu viền
+        :param weight: Độ dày nét
+        :param style: Kiểu nét
+        :param fill_color: Màu tô nền (tùy chọn)
+        """
+        if len(points) < 3:
+            return "Lỗi: Hình đa giác góc vuông cần tối thiểu 3 đỉnh!"
 
-        if not segments:
-            return f"Không tìm thấy đoạn ranh giới nào trong file tham chiếu tại vùng ({seed_x}, {seed_y}) với bán kính {search_radius}m."
-
-        # 3. Thuật toán Topological Chaining khép góc đa giác
-        def point_in_polygon(px, py, poly):
-            inside = False
-            n = len(poly)
-            p1x, p1y = poly[0]
-            for i in range(1, n + 1):
-                p2x, p2y = poly[i % n]
-                if min(p1y, p2y) < py <= max(p1y, p2y):
-                    if px <= max(p1x, p2x):
-                        xinters = (py - p1y) * (p2x - p1x) / (p2y - p1y + 1e-12) + p1x
-                        if p1x == p2x or px <= xinters:
-                            inside = not inside
-                p1x, p1y = p2x, p2y
-            return inside
-
-        def calc_area(poly):
-            n = len(poly)
-            a = 0.0
-            for i in range(n):
-                j = (i + 1) % n
-                a += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1]
-            return abs(a) / 2.0
-
-        # Xây dựng đồ thị các đỉnh với dung sai hở ranh 8cm
-        nodes = []
-        tol = 0.08
-
-        def get_node(pt):
-            for i, n in enumerate(nodes):
-                if math.hypot(n[0] - pt[0], n[1] - pt[1]) < tol:
-                    return i
-            nodes.append(pt)
-            return len(nodes) - 1
-
-        adj = defaultdict(set)
-        for p1, p2 in segments:
-            n1 = get_node(p1)
-            n2 = get_node(p2)
-            if n1 != n2:
-                adj[n1].add(n2)
-                adj[n2].add(n1)
-
-        # Tìm các chu trình kín đơn (simple cycles) bằng DFS
-        cycles = []
-
-        def find_cycles_dfs(curr, start, path, max_depth=35):
-            if len(path) > max_depth:
-                return
-            for nxt in adj[curr]:
-                if nxt == start and len(path) >= 3:
-                    cycles.append(list(path))
-                elif nxt not in path:
-                    find_cycles_dfs(nxt, start, path + [nxt], max_depth)
-
-        for start_node in range(len(nodes)):
-            find_cycles_dfs(start_node, start_node, [start_node])
-
-        # Lọc chu trình bao quanh hạt giống seed_x, seed_y và có diện tích nhỏ nhất
-        best_poly = None
-        min_area = float("inf")
-
-        for c_indices in cycles:
-            poly = [nodes[idx] for idx in c_indices]
-            area = calc_area(poly)
-            if area > 1.0:  # loại bỏ đa giác quá nhỏ / rác
-                if point_in_polygon(seed_x, seed_y, poly):
-                    if area < min_area:
-                        min_area = area
-                        best_poly = poly
-
-        if not best_poly:
-            return f"Không thể tự động khép góc kín thửa đất chứa điểm ({seed_x}, {seed_y}) từ các đoạn ranh giới tham chiếu."
-
-        # 4. Vẽ Shape khép kín trực tiếp vào file hiện hành
-        pt_objs = [bridge.create_point(x, y, 0.0) for x, y in best_poly]
+        app = bridge.get_app()
+        pt_objs = [bridge.create_point(p[0], p[1], p[2] if len(p) > 2 else 0.0) for p in points]
         fill_mode = 1 if fill_color is not None else 0
+
         shape_elem = bridge.unwrap(app.CreateShapeElement1(None, pt_objs, fill_mode))
-        bridge.apply_symbology(shape_elem, level=target_level, color=color, weight=weight)
+        bridge.apply_symbology(shape_elem, level=level, color=color, weight=weight, style=style)
         if fill_color is not None:
             try:
                 shape_elem.FillColor = int(fill_color)
             except Exception:
                 pass
         bridge.add_element(shape_elem)
-        shape_id = str(getattr(shape_elem, "ID64", getattr(shape_elem, "ID", "")))
+        return f"Đã vẽ đa giác góc vuông {len(points)} đỉnh"
 
-        # 5. Ghi nhãn text nếu có yêu cầu
-        if label_text:
+    @mcp.tool
+    def draw_regular_polygon(
+        center_x: float,
+        center_y: float,
+        radius: float,
+        num_edges: int = 5,
+        rotation_deg: float = 0.0,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+        weight: Optional[int] = None,
+        fill_color: Optional[int] = None,
+    ) -> str:
+        """
+        Vẽ đa giác đều (Place Regular Polygon / Inscribed / Circumscribed Polygon).
+        Tương ứng với công cụ 'Place Regular Polygon' trong Tool Box Polygons.
+
+        :param center_x: Tọa độ X tâm đa giác
+        :param center_y: Tọa độ Y tâm đa giác
+        :param radius: Bán kính đường tròn ngoại tiếp đa giác
+        :param num_edges: Số cạnh đa giác (tối thiểu 3: tam giác đều, ngũ giác, lục giác...)
+        :param rotation_deg: Góc xoay ban đầu (độ)
+        :param level: Tên Level
+        :param color: Màu viền
+        :param weight: Độ dày nét
+        :param fill_color: Màu tô nền
+        """
+        if num_edges < 3:
+            return "Lỗi: Đa giác phải có tối thiểu 3 cạnh!"
+        if radius <= 0:
+            return "Lỗi: Bán kính phải lớn hơn 0!"
+
+        app = bridge.get_app()
+        step = 2.0 * math.pi / num_edges
+        start_rad = math.radians(rotation_deg)
+
+        pt_objs = []
+        for i in range(num_edges):
+            ang = start_rad + i * step
+            px = center_x + radius * math.cos(ang)
+            py = center_y + radius * math.sin(ang)
+            pt_objs.append(bridge.create_point(px, py, 0.0))
+
+        fill_mode = 1 if fill_color is not None else 0
+        shape_elem = bridge.unwrap(app.CreateShapeElement1(None, pt_objs, fill_mode))
+        bridge.apply_symbology(shape_elem, level=level, color=color, weight=weight)
+        if fill_color is not None:
             try:
-                lbl_pt = bridge.create_point(seed_x, seed_y, 0.0)
-                mat = bridge.create_rotation_matrix(0.0)
-                te = bridge.unwrap(app.CreateTextElement1(None, str(label_text), lbl_pt, mat))
-                bridge.apply_symbology(te, level=target_level, color=color, weight=1)
-                try:
-                    te.TextStyle.Height = 0.6
-                    te.TextStyle.Width = 0.6
-                except Exception:
-                    pass
-                bridge.add_element(te)
+                shape_elem.FillColor = int(fill_color)
             except Exception:
                 pass
+        bridge.add_element(shape_elem)
+        return f"Đã vẽ đa giác đều {num_edges} cạnh tại tâm ({center_x}, {center_y}) bán kính {radius}"
 
+    @mcp.tool
+    def draw_half_circle(
+        center_x: float,
+        center_y: float,
+        radius: float,
+        start_angle_deg: float = 0.0,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+        weight: Optional[int] = None,
+    ) -> str:
+        """
+        Vẽ nửa đường tròn (Half Circle / Semicircle Arc 180°).
+        Tương ứng với công cụ 'Place Half Circle' trong Tool Box Circles.
+
+        :param center_x: Tọa độ X tâm
+        :param center_y: Tọa độ Y tâm
+        :param radius: Bán kính
+        :param start_angle_deg: Góc xuất phát (độ)
+        :param level: Tên Level
+        :param color: Màu nét
+        :param weight: Độ dày nét
+        """
+        if radius <= 0:
+            return "Lỗi: Bán kính phải lớn hơn 0!"
+
+        app = bridge.get_app()
+        center = bridge.create_point(center_x, center_y, 0.0)
+        matrix = bridge.create_rotation_matrix(0.0)
+        start_rad = math.radians(start_angle_deg)
+        sweep_rad = math.pi  # 180 độ
+
+        arc_elem = bridge.unwrap(app.CreateArcElement2(None, center, radius, radius, matrix, start_rad, sweep_rad))
+        bridge.apply_symbology(arc_elem, level=level, color=color, weight=weight)
+        bridge.add_element(arc_elem)
+        return f"Đã vẽ nửa đường tròn tâm ({center_x}, {center_y}), R={radius}, start={start_angle_deg}°"
+
+    @mcp.tool
+    def construct_angle_bisector(
+        x1: float,
+        y1: float,
+        vertex_x: float,
+        vertex_y: float,
+        x2: float,
+        y2: float,
+        length: float = 10.0,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+    ) -> str:
+        """
+        Dựng đường phân giác góc giữa 2 tia tạo bởi 3 điểm (Construct Angle Bisector).
+        Tương ứng với công cụ 'Construct Angle Bisector' trong Tool Box Linear Elements / Curves.
+
+        :param x1: Tọa độ X điểm trên tia 1
+        :param y1: Tọa độ Y điểm trên tia 1
+        :param vertex_x: Tọa độ X của đỉnh góc
+        :param vertex_y: Tọa độ Y của đỉnh góc
+        :param x2: Tọa độ X điểm trên tia 2
+        :param y2: Tọa độ Y điểm trên tia 2
+        :param length: Chiều dài đoạn phân giác cần vẽ
+        :param level: Tên Level
+        :param color: Màu nét
+        """
+        v1_x, v1_y = x1 - vertex_x, y1 - vertex_y
+        v2_x, v2_y = x2 - vertex_x, y2 - vertex_y
+        len1 = math.hypot(v1_x, v1_y)
+        len2 = math.hypot(v2_x, v2_y)
+
+        if len1 < 1e-6 or len2 < 1e-6:
+            return "Lỗi: Điểm trên tia trùng với đỉnh góc!"
+
+        u1_x, u1_y = v1_x / len1, v1_y / len1
+        u2_x, u2_y = v2_x / len2, v2_y / len2
+
+        b_x = u1_x + u2_x
+        b_y = u1_y + u2_y
+        b_len = math.hypot(b_x, b_y)
+
+        if b_len < 1e-6:
+            # Góc bẹt 180 độ
+            b_x, b_y = -u1_y, u1_x
+            b_len = 1.0
+
+        target_x = vertex_x + (b_x / b_len) * length
+        target_y = vertex_y + (b_y / b_len) * length
+
+        app = bridge.get_app()
+        p_start = bridge.create_point(vertex_x, vertex_y, 0.0)
+        p_end = bridge.create_point(target_x, target_y, 0.0)
+        line = bridge.unwrap(app.CreateLineElement2(None, p_start, p_end))
+        bridge.apply_symbology(line, level=level, color=color)
+        bridge.add_element(line)
+        return f"Đã dựng đường phân giác góc tại đỉnh ({vertex_x}, {vertex_y}) dài {length}"
+
+    @mcp.tool
+    def construct_min_distance_line(
+        element_id1: str,
+        element_id2: str,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+    ) -> str:
+        """
+        Dựng đoạn thẳng nối khoảng cách ngắn nhất giữa hai phần tử (Construct Minimum Distance Line).
+        Tương ứng với công cụ 'Construct Line Between Elements' trong Tool Box Linear Elements.
+
+        :param element_id1: ID phần tử thứ nhất
+        :param element_id2: ID phần tử thứ hai
+        :param level: Tên Level
+        :param color: Màu nét
+        """
+        el1 = bridge.find_element_by_id(element_id1)
+        el2 = bridge.find_element_by_id(element_id2)
+        if not el1 or not el2:
+            return f"Lỗi: Không tìm thấy phần tử {element_id1} hoặc {element_id2}!"
+
+        app = bridge.get_app()
         try:
-            shape_elem.Redraw()
+            app.CadInputQueue.SendKeyin("construct line minimum distance")
+            r1 = el1.Range
+            p1 = bridge.create_point((r1.Low.X + r1.High.X) / 2.0, (r1.Low.Y + r1.High.Y) / 2.0, 0.0)
+            r2 = el2.Range
+            p2 = bridge.create_point((r2.Low.X + r2.High.X) / 2.0, (r2.Low.Y + r2.High.Y) / 2.0, 0.0)
+            app.CadInputQueue.SendDataPoint(p1, 1)
+            app.CadInputQueue.SendDataPoint(p2, 1)
+            app.CadInputQueue.SendReset()
+            return f"Đã dựng đoạn khoảng cách ngắn nhất giữa phần tử {element_id1} và {element_id2}"
+        except Exception as ex:
+            return f"Lỗi khi dựng đoạn khoảng cách ngắn nhất: {ex}"
+
+    @mcp.tool
+    def draw_points_along_element(
+        element_id: str,
+        num_points: int = 5,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+    ) -> str:
+        """
+        Chấm các điểm mốc chia đều dọc theo một phần tử đường/đường cong (Construct Points Along Element).
+        Tương ứng với công cụ 'Construct Points Along Element' trong Tool Box Points.
+
+        :param element_id: ID của phần tử cần chia điểm
+        :param num_points: Số lượng điểm cần chấm
+        :param level: Tên Level
+        :param color: Màu điểm
+        """
+        el = bridge.find_element_by_id(element_id)
+        if not el:
+            return f"Lỗi: Không tìm thấy phần tử có ID '{element_id}'!"
+
+        app = bridge.get_app()
+        pts_created = 0
+        try:
+            length = float(getattr(el, "Length", 0.0))
+            if length > 0 and num_points > 1:
+                step = length / float(num_points - 1)
+                for i in range(num_points):
+                    dist = i * step
+                    pt = el.PointAtDistance(dist)
+                    pt_elem = bridge.unwrap(app.CreatePointElement1(None, pt))
+                    bridge.apply_symbology(pt_elem, level=level, color=color)
+                    bridge.add_element(pt_elem)
+                    pts_created += 1
+                return f"Đã chia đều và vẽ {pts_created} điểm dọc theo phần tử ID {element_id}"
         except Exception:
             pass
 
-        # Tính chu vi
-        perim = 0.0
-        n_pts = len(best_poly)
-        for i in range(n_pts):
-            j = (i + 1) % n_pts
-            perim += math.hypot(best_poly[j][0] - best_poly[i][0], best_poly[j][1] - best_poly[i][1])
+        # Fallback Keyin
+        try:
+            app.CadInputQueue.SendKeyin(f"construct point distance")
+            return f"Đã gửi lệnh chia điểm dọc phần tử ID {element_id}"
+        except Exception as ex:
+            return f"Lỗi khi chia điểm: {ex}"
 
-        return (
-            f"Đã sao chép và tạo Region thành công từ Reference!\n"
-            f"- Đối tượng mới: ShapeElement ID {shape_id}\n"
-            f"- Level: {target_level}, Màu viền: {color}, Màu tô: {fill_color}\n"
-            f"- Số đỉnh: {len(best_poly)}\n"
-            f"- Diện tích: {round(min_area, 3)} m²\n"
-            f"- Chu vi: {round(perim, 3)} m\n"
-            f"- Tọa độ các đỉnh: {best_poly}"
-        )
+    @mcp.tool
+    def draw_points_at_intersection(
+        element_id1: str,
+        element_id2: str,
+        level: Optional[str] = None,
+        color: Optional[int] = None,
+    ) -> str:
+        """
+        Tìm và chấm các điểm giao nhau giữa 2 phần tử hình học (Construct Point at Intersection).
+        Tương ứng với công cụ 'Construct Point at Intersection' trong Tool Box Points.
 
+        :param element_id1: ID phần tử thứ nhất
+        :param element_id2: ID phần tử thứ hai
+        :param level: Tên Level
+        :param color: Màu điểm
+        """
+        el1 = bridge.find_element_by_id(element_id1)
+        el2 = bridge.find_element_by_id(element_id2)
+        if not el1 or not el2:
+            return f"Lỗi: Không tìm thấy phần tử {element_id1} hoặc {element_id2}!"
 
+        app = bridge.get_app()
+        pts_count = 0
+        try:
+            matrix = bridge.create_rotation_matrix(0.0)
+            pts = el1.GetIntersectionPoints(el2, matrix)
+            if pts:
+                for p in pts:
+                    pt_elem = bridge.unwrap(app.CreatePointElement1(None, p))
+                    bridge.apply_symbology(pt_elem, level=level, color=color)
+                    bridge.add_element(pt_elem)
+                    pts_count += 1
+                return f"Đã vẽ {pts_count} điểm giao cắt giữa phần tử {element_id1} và {element_id2}"
+        except Exception:
+            pass
+
+        try:
+            app.CadInputQueue.SendKeyin("construct point intersection")
+            r1 = el1.Range
+            p1 = bridge.create_point((r1.Low.X + r1.High.X) / 2.0, (r1.Low.Y + r1.High.Y) / 2.0, 0.0)
+            r2 = el2.Range
+            p2 = bridge.create_point((r2.Low.X + r2.High.X) / 2.0, (r2.Low.Y + r2.High.Y) / 2.0, 0.0)
+            app.CadInputQueue.SendDataPoint(p1, 1)
+            app.CadInputQueue.SendDataPoint(p2, 1)
+            app.CadInputQueue.SendReset()
+            return f"Đã gửi lệnh chấm điểm giao cắt giữa phần tử {element_id1} và {element_id2}"
+        except Exception as ex:
+            return f"Lỗi khi chấm điểm giao cắt: {ex}"
 

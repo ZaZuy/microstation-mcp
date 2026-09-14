@@ -469,3 +469,63 @@ def register_file_model_tools(mcp):
 
         return levels_list
 
+    @mcp.tool
+    def reload_reference(reference_name: Optional[str] = None) -> str:
+        """
+        Tải lại (Reload / Refresh) các file bản vẽ tham chiếu (Reference Files / Xrefs).
+        Tương ứng với lệnh 'Reload Reference' trong Tool Box References.
+
+        :param reference_name: Tên file tham chiếu cần reload (nếu None sẽ tải lại toàn bộ)
+        """
+        app = bridge.get_app()
+        try:
+            if reference_name:
+                app.CadInputQueue.SendKeyin(f'reference reload "{reference_name}"')
+                return f"Đã tải lại reference '{reference_name}'."
+            else:
+                app.CadInputQueue.SendKeyin("reference reload all")
+                return "Đã tải lại toàn bộ các file reference tham chiếu."
+        except Exception as ex:
+            return f"Lỗi khi reload reference: {ex}"
+
+    @mcp.tool
+    def clip_reference(reference_name: str, method: str = "fence") -> str:
+        """
+        Cắt xén vùng hiển thị của file tham chiếu (Reference Clip Boundary / Mask).
+        Tương ứng với công cụ 'Clip Reference' trong Tool Box References.
+
+        :param reference_name: Tên file tham chiếu cần cắt xén
+        :param method: Phương pháp cắt ('fence', 'mask', 'delete')
+        """
+        app = bridge.get_app()
+        try:
+            app.CadInputQueue.SendKeyin(f'reference clip {method} "{reference_name}"')
+            return f"Đã gửi lệnh clip reference '{reference_name}' bằng phương pháp {method}."
+        except Exception as ex:
+            return f"Lỗi khi clip reference: {ex}"
+
+    @mcp.tool
+    def delete_model(model_name: str) -> str:
+        """
+        Xóa một Model (Design Model hoặc Sheet Model) khỏi file DGN hiện tại.
+        Tương ứng với lệnh 'Delete Model' trong Tool Box Models.
+
+        :param model_name: Tên Model cần xóa (không được trùng với Active Model đang mở)
+        """
+        dgn = bridge.get_active_file()
+        active_m = bridge.get_active_model()
+        if str(active_m.Name).lower() == str(model_name).lower():
+            return f"Lỗi: Không thể xóa Model '{model_name}' vì đang là Active Model!"
+
+        try:
+            m = dgn.Models.Item(str(model_name))
+            dgn.Models.Delete(m)
+            return f"Đã xóa thành công Model '{model_name}'."
+        except Exception:
+            app = bridge.get_app()
+            try:
+                app.CadInputQueue.SendKeyin(f'model delete "{model_name}"')
+                return f"Đã gửi lệnh xóa Model '{model_name}'."
+            except Exception as ex:
+                return f"Lỗi khi xóa Model '{model_name}': {ex}"
+

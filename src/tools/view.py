@@ -188,3 +188,24 @@ def register_view_tools(mcp):
             return f"Đã gửi lệnh chụp màn hình View {view_number} lưu tại '{norm_path}'"
         except Exception as ex:
             return f"Lỗi khi chụp màn hình View: {ex}"
+
+    @mcp.tool
+    def rotate_view(
+        view_number: int = 1,
+        angle_deg: float = 0.0,
+    ) -> str:
+        """
+        Xoay góc nhìn của cửa sổ View quanh tâm nhìn (Rotate View).
+        Tương ứng với công cụ 'Rotate View' trong Tool Box View Control.
+
+        :param view_number: Số hiệu View (1-8, mặc định 1)
+        :param angle_deg: Góc xoay tính theo độ (dương là ngược chiều kim đồng hồ)
+        """
+        app = bridge.get_app()
+        try:
+            app.CadInputQueue.SendKeyin(f"rotate view active {angle_deg} {view_number}")
+            app.CadInputQueue.SendKeyin(f"view update {view_number}")
+            return f"Đã xoay View {view_number} một góc {angle_deg}°"
+        except Exception as ex:
+            return f"Lỗi khi xoay View {view_number}: {ex}"
+

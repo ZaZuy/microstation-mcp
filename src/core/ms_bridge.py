@@ -9,6 +9,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+import math
 import subprocess
 import winreg
 from typing import List, Optional, Tuple, Any
@@ -284,16 +285,15 @@ class MicroStationBridge:
 
         if level:
             try:
+                lvl_name = str(level)
                 try:
-                    lvl_obj = dgn_file.Levels(level)
+                    lvl_obj = dgn_file.Levels(lvl_name)
                 except Exception:
-                    lvl_obj = dgn_file.Levels.Item(level)
+                    dgn_file.AddNewLevel(lvl_name)
+                    dgn_file.RewriteLevels()
+                    lvl_obj = dgn_file.Levels(lvl_name)
                 if lvl_obj:
                     element.Level = lvl_obj
-                else:
-                    new_lvl = dgn_file.AddNewLevel(level)
-                    dgn_file.RewriteLevels()
-                    element.Level = new_lvl
             except Exception:
                 pass
 

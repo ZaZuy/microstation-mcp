@@ -4,12 +4,12 @@ Quản lý trạng thái và cấu hình tổng quát của MicroStation MCP Ser
 """
 
 SERVER_NAME = "microstation-v8i"
-SERVER_VERSION = "1.3.0"
+SERVER_VERSION = "1.4.0"
 
 SERVER_INSTRUCTIONS = """
-MicroStation V8i MCP Server - Hệ thống điều khiển CAD chuyên nghiệp toàn diện cho AI (66 Tools).
+MicroStation V8i MCP Server - Hệ thống điều khiển CAD chuyên nghiệp toàn diện cho AI (77 Tools).
 
-Bao gồm 10 nhóm công cụ:
+Bao gồm 12 nhóm công cụ:
 1. HÌNH HỌC (13 tools):
    - draw_line, draw_linestring, draw_shape, draw_rectangle, draw_circle, draw_arc, draw_ellipse, draw_point, draw_bspline_curve, place_cell, create_region, flood_fill_region, copy_reference_parcel.
 2. ĐO ĐẠC & GHI KÍCH THƯỚC (8 tools):
@@ -30,6 +30,10 @@ Bao gồm 10 nhóm công cụ:
    - get_drawing_info, get_levels, get_active_settings, scan_elements, get_element_details, delete_element_by_id.
 10. LỆNH CAD TRỰC TIẾP (2 tools):
    - send_keyin, run_keyin_script.
+11. SỐ HÓA BẢN ĐỒ ĐỊA CHÍNH (5 tools):
+   - convert_pdf_to_map_image, georeference_map_sheet, extract_map_vectors, ocr_map_parcels, auto_digitize_cadastral_map.
+12. QUẢN LÝ ẢNH QUÉT RASTER (4 tools):
+   - attach_raster_image, detach_raster_image, fit_raster, set_raster_display.
 
 RESOURCES:
 - ms://drawing/info: Trạng thái và metadata bản vẽ DGN đang mở.

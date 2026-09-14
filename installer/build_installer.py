@@ -134,6 +134,10 @@ def build_exe():
         "--hidden-import", "pywintypes",
         "--hidden-import", "winreg",
         "--hidden-import", "PIL",
+        "--hidden-import", "numpy",
+        "--hidden-import", "shapely",
+        "--hidden-import", "fitz",
+        "--hidden-import", "cv2",
         "--collect-all", "fastmcp",
         "--collect-all", "mcp",
         "--collect-all", "anyio",
@@ -141,6 +145,10 @@ def build_exe():
         "--collect-all", "starlette",
         "--collect-all", "uvicorn",
         "--collect-all", "PIL",
+        "--collect-all", "numpy",
+        "--collect-all", "shapely",
+        "--collect-all", "fitz",
+        "--collect-all", "cv2",
         MCP_SERVER_PY
     ]
     res2 = subprocess.run(mcp_cmd, cwd=PROJECT_ROOT)

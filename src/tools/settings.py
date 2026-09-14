@@ -135,3 +135,36 @@ def register_settings_tools(mcp):
             app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
             app.CadInputQueue.SendKeyin("update all")
             return f"Đã gửi lệnh key-in thay đổi hiển thị Level '{level_name}' ({action})."
+
+    @mcp.tool
+    def match_element_attributes(element_id: str) -> str:
+        """
+        Lấy các thuộc tính (Level, Color, Weight, LineStyle) từ một đối tượng có sẵn
+        và gán làm thông số vẽ hiện hành (Match Element Attributes / Pipette).
+        Tương ứng với công cụ 'Match Element Attributes' trong Tool Box Attributes.
+
+        :param element_id: ID của phần tử mẫu cần lấy thuộc tính
+        """
+        el = bridge.find_element_by_id(element_id)
+        if not el:
+            return f"Lỗi: Không tìm thấy phần tử có ID {element_id}"
+
+        app = bridge.get_app()
+        lvl_name = ""
+        try:
+            if el.Level:
+                app.ActiveSettings.Level = el.Level
+                lvl_name = el.Level.Name
+        except Exception:
+            pass
+
+        try:
+            app.ActiveSettings.Color = el.Color
+            app.ActiveSettings.LineWeight = el.LineWeight
+            if hasattr(el, "LineStyle") and el.LineStyle:
+                app.ActiveSettings.LineStyle = el.LineStyle
+        except Exception:
+            pass
+
+        return f"Đã sao chép thuộc tính từ đối tượng ID {element_id} làm Active Settings: Level='{lvl_name}', Color={getattr(el, 'Color', None)}, Weight={getattr(el, 'LineWeight', None)}."
+
