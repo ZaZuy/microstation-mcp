@@ -1,0 +1,234 @@
+#----------------------------------------------------------------------
+# MsNativePipe.mke  -  MDL Makefile cho Named Pipe MCP Server
+#
+# Muc dich: Build MDL application MsNativePipe.ma tu cac source file C++.
+#           Output: MsNativePipe.ma (MDL Application file)
+#
+# Yeu cau:
+#   - Bentley MicroStation V8i SDK (SELECTseries 3 hoac moi hon)
+#   - Microsoft Visual C++ 2005 hoac 2008 (co the dung 2010)
+#   - MDL Build Environment (mdlcomp, mlink)
+#
+# Cach build:
+#   1. Mo MicroStation V8i MDL build environment
+#   2. cd d:\3. Task\microstation-mcp\mdl\MsNativePipe
+#   3. bmake -f MsNativePipe.mke
+#
+# Output:
+#   - $(MS)\mdlapps\MsNativePipe.ma
+#
+# Cach load trong MicroStation:
+#   Key-in: MDL LOAD MsNativePipe
+#   Hoac: MDL KEYIN MSNATIVEPIPE
+#
+# Tac gia: MsNativePipe MDL Project
+# Phien ban: 1.0
+#----------------------------------------------------------------------
+
+# Ten ung dung (khong co extension)
+appName = MsNativePipe
+
+# ======================================================================
+# Duong dan Bentley/MicroStation SDK
+# Chinh sua cho phu hop voi cai dat cu the
+# ======================================================================
+
+# Thu muc cai dat Bentley (chinh o day neu khac)
+BENTLEY_ROOT  = C:/Program Files (x86)/Bentley
+MS_ROOT       = $(BENTLEY_ROOT)/MicroStation V8i (SELECTseries)/MicroStation
+
+# Thu muc MS (duoc dinh nghia trong MDL build environment)
+# Neu chay tu MDL environment thi MS duoc set san
+!ifndef MS
+MS = $(MS_ROOT)
+!endif
+
+# Thu muc SDK
+MDL_INC       = $(MS)/mdl/include
+MDL_LIB       = $(MS)/mdl/library
+MDL_APPS      = $(MS)/mdlapps
+
+# MDL tools
+MDL_COMP      = $(MS)/mdlcomp.exe
+MDL_LINK      = $(MS)/mlink.exe
+BMAKE         = $(MS)/bmake.exe
+
+# ======================================================================
+# Thu muc source va output
+# ======================================================================
+SRC_DIR       = .
+OBJ_DIR       = ./obj
+MAK_DIR       = $(OBJ_DIR)
+
+# Tao thu muc obj neu chua ton tai
+!if !exist($(OBJ_DIR))
+MAKDIRS = $(OBJ_DIR)
+!endif
+
+# ======================================================================
+# Compiler flags
+# ======================================================================
+
+# MDL Compiler options
+# -DWIN32       : Windows 32-bit
+# -DMDL         : MDL environment
+# -D_USRDLL     : Build as DLL (MDL app la DLL)
+# -DUNICODE     : Ho tro Unicode
+# -D_UNICODE    : Ho tro Unicode
+MDL_DEFINES   = -DWIN32 -DMDL -D_USRDLL -DUNICODE -D_UNICODE \
+                -DMICROSTATION_V8I -D_CRT_SECURE_NO_WARNINGS
+
+# Include directories
+MDL_INCLUDES  = -I$(MDL_INC) \
+                -I$(MDL_INC)/DgnPlatform \
+                -I$(SRC_DIR)
+
+# Compiler flags
+MDL_CFLAGS    = -c -nologo -W3 -WX- -O2 -EHsc -MD \
+                $(MDL_DEFINES) $(MDL_INCLUDES)
+
+# ======================================================================
+# Linker flags
+# ======================================================================
+
+# Libraries can lien ket
+MDL_LIBS      = $(MDL_LIB)/mdllib.lib \
+                kernel32.lib user32.lib
+
+# Linker options cho MDL app (DLL format)
+MDL_LDFLAGS   = /NOLOGO /DLL /ENTRY:"DllMain" \
+                /SUBSYSTEM:WINDOWS /MACHINE:X86
+
+# ======================================================================
+# Source files
+# ======================================================================
+
+# Danh sach file source C++
+CPP_SRCS =  \
+    $(SRC_DIR)/MsNativePipe.cpp  \
+    $(SRC_DIR)/pipe_server.cpp   \
+    $(SRC_DIR)/handlers.cpp      \
+    $(SRC_DIR)/geometry.cpp      \
+    $(SRC_DIR)/batch.cpp
+
+# Danh sach file object tuong ung
+OBJS =  \
+    $(OBJ_DIR)/MsNativePipe.obj  \
+    $(OBJ_DIR)/pipe_server.obj   \
+    $(OBJ_DIR)/handlers.obj      \
+    $(OBJ_DIR)/geometry.obj      \
+    $(OBJ_DIR)/batch.obj
+
+# Header files (dependencies)
+HDR_FILES =  \
+    $(SRC_DIR)/json_lite.h    \
+    $(SRC_DIR)/pipe_server.h  \
+    $(SRC_DIR)/handlers.h     \
+    $(SRC_DIR)/geometry.h     \
+    $(SRC_DIR)/batch.h
+
+# ======================================================================
+# Targets
+# ======================================================================
+
+# Target mac dinh: build va install
+all : makedirs $(MDL_APPS)/$(appName).ma
+    @echo Build thanh cong: $(MDL_APPS)/$(appName).ma
+
+# Tao thu muc neu can
+makedirs :
+!if !exist($(OBJ_DIR))
+    mkdir $(OBJ_DIR)
+!endif
+
+# Link: tao file .ma tu cac .obj
+$(MDL_APPS)/$(appName).ma : $(OBJS)
+    @echo Linking $(appName).ma...
+    $(MDL_LINK) $(MDL_LDFLAGS) /OUT:"$(OBJ_DIR)/$(appName).dll" \
+        $(OBJS) $(MDL_LIBS)
+    @echo Chuyen doi sang .ma format...
+    $(MDL_COMP) -ma "$(OBJ_DIR)/$(appName).dll" \
+                    "$(MDL_APPS)/$(appName).ma"
+    @echo Install: $(MDL_APPS)/$(appName).ma
+
+# ======================================================================
+# Compile rules - moi .cpp -> .obj
+# ======================================================================
+
+$(OBJ_DIR)/MsNativePipe.obj : $(SRC_DIR)/MsNativePipe.cpp $(HDR_FILES)
+    @echo Compiling MsNativePipe.cpp...
+    cl $(MDL_CFLAGS) /Fo"$(OBJ_DIR)/MsNativePipe.obj" \
+       "$(SRC_DIR)/MsNativePipe.cpp"
+
+$(OBJ_DIR)/pipe_server.obj : $(SRC_DIR)/pipe_server.cpp \
+                              $(SRC_DIR)/pipe_server.h   \
+                              $(SRC_DIR)/handlers.h
+    @echo Compiling pipe_server.cpp...
+    cl $(MDL_CFLAGS) /Fo"$(OBJ_DIR)/pipe_server.obj" \
+       "$(SRC_DIR)/pipe_server.cpp"
+
+$(OBJ_DIR)/handlers.obj : $(SRC_DIR)/handlers.cpp \
+                           $(SRC_DIR)/handlers.h    \
+                           $(SRC_DIR)/json_lite.h   \
+                           $(SRC_DIR)/geometry.h    \
+                           $(SRC_DIR)/batch.h
+    @echo Compiling handlers.cpp...
+    cl $(MDL_CFLAGS) /Fo"$(OBJ_DIR)/handlers.obj" \
+       "$(SRC_DIR)/handlers.cpp"
+
+$(OBJ_DIR)/geometry.obj : $(SRC_DIR)/geometry.cpp \
+                           $(SRC_DIR)/geometry.h   \
+                           $(SRC_DIR)/json_lite.h
+    @echo Compiling geometry.cpp...
+    cl $(MDL_CFLAGS) /Fo"$(OBJ_DIR)/geometry.obj" \
+       "$(SRC_DIR)/geometry.cpp"
+
+$(OBJ_DIR)/batch.obj : $(SRC_DIR)/batch.cpp   \
+                        $(SRC_DIR)/batch.h      \
+                        $(SRC_DIR)/json_lite.h  \
+                        $(SRC_DIR)/geometry.h
+    @echo Compiling batch.cpp...
+    cl $(MDL_CFLAGS) /Fo"$(OBJ_DIR)/batch.obj" \
+       "$(SRC_DIR)/batch.cpp"
+
+# ======================================================================
+# Utility targets
+# ======================================================================
+
+# Xoa cac file build
+clean :
+    @echo Xoa cac file build...
+    -del /Q $(OBJ_DIR)\*.obj 2>nul
+    -del /Q $(OBJ_DIR)\*.dll 2>nul
+    -del /Q $(OBJ_DIR)\*.lib 2>nul
+    -del /Q $(OBJ_DIR)\*.exp 2>nul
+    -del /Q $(OBJ_DIR)\*.pdb 2>nul
+    @echo Clean hoan tat.
+
+# Xoa ca file .ma da install
+cleanall : clean
+    -del /Q "$(MDL_APPS)\$(appName).ma" 2>nul
+    @echo CleanAll hoan tat.
+
+# Chi rebuild (clean + build)
+rebuild : cleanall all
+
+# Install: chi copy file .ma (neu da build roi)
+install :
+    @if exist "$(OBJ_DIR)\$(appName).dll" \
+        echo Dang install $(appName).ma...
+    @if exist "$(OBJ_DIR)\$(appName).dll" \
+        $(MDL_COMP) -ma "$(OBJ_DIR)\$(appName).dll" \
+                        "$(MDL_APPS)\$(appName).ma"
+    @echo Install hoan tat.
+
+# Hien thi thong tin cau hinh
+info :
+    @echo === MsNativePipe Build Configuration ===
+    @echo appName    = $(appName)
+    @echo MS         = $(MS)
+    @echo MDL_INC    = $(MDL_INC)
+    @echo MDL_LIB    = $(MDL_LIB)
+    @echo MDL_APPS   = $(MDL_APPS)
+    @echo OBJ_DIR    = $(OBJ_DIR)
+    @echo =========================================

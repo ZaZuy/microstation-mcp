@@ -88,11 +88,80 @@ def find_python_executable():
     return "python.exe"
 
 
+def find_microstation_directory():
+    """Tìm thư mục cài đặt gốc của MicroStation V8i."""
+    try:
+        out = subprocess.check_output(
+            ["wmic", "process", "where", "name='ustation.exe'", "get", "ExecutablePath"],
+            text=True,
+            creationflags=0x08000000 if sys.platform == "win32" else 0
+        )
+        for line in out.splitlines():
+            line = line.strip()
+            if line.lower().endswith("ustation.exe") and os.path.exists(line):
+                return os.path.dirname(os.path.abspath(line))
+    except Exception:
+        pass
+
+    candidates = [
+        r"C:\Program Files (x86)\Bentley\MicroStation V8i (SELECTseries)\MicroStation",
+        r"C:\Program Files\Bentley\MicroStation V8i (SELECTseries)\MicroStation",
+        r"C:\Bentley\MicroStation V8i (SELECTseries)\MicroStation",
+        r"D:\Bentley\MicroStation V8i (SELECTseries)\MicroStation",
+        r"C:\Program Files (x86)\Bentley\MicroStation V8i\MicroStation",
+        r"C:\Bentley\MicroStation\MicroStation",
+    ]
+    for c in candidates:
+        if os.path.exists(os.path.join(c, "ustation.exe")):
+            return os.path.abspath(c)
+
+    try:
+        import winreg
+        for hive in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
+            for sub in [
+                r"Software\Bentley\MicroStation",
+                r"Software\Wow6432Node\Bentley\MicroStation",
+                r"Software\Bentley\Installed_Products",
+                r"Software\Wow6432Node\Bentley\Installed_Products"
+            ]:
+                try:
+                    with winreg.OpenKey(hive, sub) as key:
+                        num = winreg.QueryInfoKey(key)[0]
+                        for i in range(num):
+                            sk_name = winreg.EnumKey(key, i)
+                            with winreg.OpenKey(key, sk_name) as sk:
+                                try:
+                                    path, _ = winreg.QueryValueEx(sk, "Path")
+                                    if path and os.path.exists(os.path.join(path, "ustation.exe")):
+                                        return os.path.abspath(path)
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return None
+
+
+def is_microstation_running():
+    """Kiểm tra ustation.exe có đang chạy không."""
+    try:
+        out = subprocess.check_output(
+            ["tasklist", "/FI", "IMAGENAME eq ustation.exe"],
+            text=True,
+            creationflags=0x08000000 if sys.platform == "win32" else 0
+        )
+        return "ustation.exe" in out.lower()
+    except Exception:
+        return False
+
+
 class InstallerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Cài Đặt Vigela AI App")
-        self.root.geometry("640x520")
+        self.root.geometry("640x580")
         self.root.resizable(False, False)
 
         # Gán icon Vigela
@@ -121,6 +190,8 @@ class InstallerGUI:
         self.config_claude_var = tk.BooleanVar(value=True)
         self.config_antigravity_var = tk.BooleanVar(value=True)
         self.install_deps_var = tk.BooleanVar(value=True)
+        self.config_native_pipe_var = tk.BooleanVar(value=True)
+        self.install_rule_skill_var = tk.BooleanVar(value=True)
 
         # Ép cửa sổ luôn nổi lên trên cùng màn hình khi mở
         self.force_bring_to_front()
@@ -204,7 +275,13 @@ class InstallerGUI:
         c3.pack(anchor="w", padx=15, pady=2)
 
         c4 = tk.Checkbutton(opts_card, text="Cài đặt/Kiểm tra các thư viện Python phụ thuộc (fastmcp, pywin32)", variable=self.install_deps_var, font=("Segoe UI", 9), bg=self.card_color, fg=self.text_color, selectcolor="#1e1e2e", activebackground=self.card_color, activeforeground=self.text_color)
-        c4.pack(anchor="w", padx=15, pady=(2, 12))
+        c4.pack(anchor="w", padx=15, pady=2)
+
+        c5 = tk.Checkbutton(opts_card, text="Tự động cài đặt Native MDL & Auto-Load vào MicroStation V8i (~0.05ms)", variable=self.config_native_pipe_var, font=("Segoe UI", 9), bg=self.card_color, fg=self.text_color, selectcolor="#1e1e2e", activebackground=self.card_color, activeforeground=self.text_color)
+        c5.pack(anchor="w", padx=15, pady=2)
+
+        c6 = tk.Checkbutton(opts_card, text="Tự động cài đặt Rule & Skill địa chính (TT 26/2024 & TT 23/2025)", variable=self.install_rule_skill_var, font=("Segoe UI", 9), bg=self.card_color, fg=self.text_color, selectcolor="#1e1e2e", activebackground=self.card_color, activeforeground=self.text_color)
+        c6.pack(anchor="w", padx=15, pady=(2, 12))
 
         # Thanh tiến trình
         self.progress_frame = tk.Frame(self.root, bg=self.bg_color)
@@ -344,12 +421,18 @@ class InstallerGUI:
 
             meipass_src = meipass if meipass else SOURCE_DIR
 
-            # Sao chép src, launcher, assets
-            for item in ["src", "launcher", "docs", "assets"]:
+            # Sao chép src, launcher, assets, docs, skills, rules
+            for item in ["src", "launcher", "docs", "assets", "skills", "rules"]:
                 s = os.path.join(meipass_src, item)
                 d = os.path.join(target_dir, item)
                 if os.path.exists(s):
                     shutil.copytree(s, d, dirs_exist_ok=True)
+
+            for f_name in ["AGENTS.md"]:
+                s = os.path.join(meipass_src, f_name)
+                d = os.path.join(target_dir, f_name)
+                if os.path.exists(s):
+                    shutil.copy2(s, d)
 
             # Cấu hình MCP: Ưu tiên dùng Vigela_MCP_Server.exe standalone (chạy trên mọi máy kể cả không có Python)
             if mcp_server_dst and os.path.exists(mcp_server_dst):
@@ -456,6 +539,156 @@ class InstallerGUI:
                     except Exception as ex:
                         print(f"Lỗi cấu hình Claude tại {cfg_path}: {ex}", file=sys.stderr)
 
+            # Bước 3.3: Tự động cài đặt Rule & Skill chuẩn TT 26/2024 & TT 23/2025
+            if self.install_rule_skill_var.get():
+                self.update_status("Đang cài đặt Rule & Skill địa chính (TT 26/2024 & TT 23/2025)...", 80)
+                skill_src = os.path.join(meipass_src, "skills", "microstation-cad", "SKILL.md")
+                if not os.path.exists(skill_src):
+                    skill_src = os.path.join(target_dir, "skills", "microstation-cad", "SKILL.md")
+                rule_src = os.path.join(meipass_src, "rules", "cad_tt26_tt23.md")
+                if not os.path.exists(rule_src):
+                    rule_src = os.path.join(target_dir, "rules", "cad_tt26_tt23.md")
+
+                for u in user_roots:
+                    # 1. Google Antigravity Skill & Rule
+                    ag_skill_dir = os.path.join(u, ".gemini", "config", "skills", "microstation-cad")
+                    try:
+                        os.makedirs(ag_skill_dir, exist_ok=True)
+                        if os.path.exists(skill_src):
+                            shutil.copy2(skill_src, os.path.join(ag_skill_dir, "SKILL.md"))
+                    except Exception as ex:
+                        print(f"Lỗi cài đặt skill Antigravity tại {ag_skill_dir}: {ex}", file=sys.stderr)
+
+                    ag_rules_dir = os.path.join(u, ".gemini", "rules")
+                    try:
+                        os.makedirs(ag_rules_dir, exist_ok=True)
+                        if os.path.exists(rule_src):
+                            shutil.copy2(rule_src, os.path.join(ag_rules_dir, "cad_tt26_tt23.md"))
+                    except Exception as ex:
+                        print(f"Lỗi cài đặt rule Antigravity tại {ag_rules_dir}: {ex}", file=sys.stderr)
+
+                    # 2. Cursor Skill & Rule
+                    cursor_skill_dir = os.path.join(u, ".cursor", "skills", "microstation-cad")
+                    try:
+                        os.makedirs(cursor_skill_dir, exist_ok=True)
+                        if os.path.exists(skill_src):
+                            shutil.copy2(skill_src, os.path.join(cursor_skill_dir, "SKILL.md"))
+                    except Exception:
+                        pass
+
+                    cursor_rule_path = os.path.join(u, ".cursorrules")
+                    try:
+                        if os.path.exists(rule_src):
+                            shutil.copy2(rule_src, cursor_rule_path)
+                    except Exception:
+                        pass
+
+                    # 3. Claude Desktop / Claude Code Skill & Rule
+                    claude_skill_dir = os.path.join(u, ".claude", "skills", "microstation-cad")
+                    try:
+                        os.makedirs(claude_skill_dir, exist_ok=True)
+                        if os.path.exists(skill_src):
+                            shutil.copy2(skill_src, os.path.join(claude_skill_dir, "SKILL.md"))
+                    except Exception:
+                        pass
+
+                    claude_rule_path = os.path.join(u, ".claude", "CLAUDE.md")
+                    try:
+                        if os.path.exists(rule_src):
+                            shutil.copy2(rule_src, claude_rule_path)
+                    except Exception:
+                        pass
+
+            # Bước 3.5: Cài đặt Native MDL Extension (MsNativePipe) vào MicroStation V8i
+            if self.config_native_pipe_var.get():
+                self.update_status("Đang cài đặt Native MDL & Auto-Load vào MicroStation V8i...", 85)
+                try:
+                    ms_dir = find_microstation_directory()
+                    if ms_dir:
+                        # 1. Tìm file MsNativePipe.ma và MsNativePipe.dll
+                        ma_src, dll_src = None, None
+                        candidate_dirs = [
+                            os.path.join(meipass_src, "mdl", "MsNativePipe"),
+                            os.path.join(meipass_src, "mdl"),
+                            os.path.join(target_dir, "mdl", "MsNativePipe"),
+                            os.path.join(target_dir, "mdl"),
+                            SOURCE_DIR,
+                        ]
+                        for c_dir in candidate_dirs:
+                            test_ma = os.path.join(c_dir, "MsNativePipe.ma")
+                            if os.path.exists(test_ma):
+                                ma_src = test_ma
+                                test_dll = os.path.join(c_dir, "MsNativePipe.dll")
+                                if os.path.exists(test_dll):
+                                    dll_src = test_dll
+                                break
+
+                        # 2. Thư mục đích cài đặt MDL
+                        mdl_targets = [
+                            os.path.join(ms_dir, "mdlapps"),
+                            r"C:\ProgramData\Bentley\MicroStation V8i (SELECTseries)\WorkSpace\standards\mdlapps\intelnt"
+                        ]
+
+                        # Nếu MicroStation đang chạy, gửi lệnh UNLOAD trước để không bị khóa file
+                        if is_microstation_running():
+                            try:
+                                import pythoncom
+                                import win32com.client
+                                pythoncom.CoInitialize()
+                                _app = win32com.client.GetActiveObject("MicroStationDGN.Application")
+                                if _app:
+                                    _app.CadInputQueue.SendCommand("MDL UNLOAD MsNativePipe")
+                                    time.sleep(0.5)
+                            except Exception:
+                                pass
+
+                        if ma_src and os.path.exists(ma_src):
+                            for t_dir in mdl_targets:
+                                try:
+                                    os.makedirs(t_dir, exist_ok=True)
+                                    shutil.copy2(ma_src, os.path.join(t_dir, "MsNativePipe.ma"))
+                                    if dll_src and os.path.exists(dll_src):
+                                        shutil.copy2(dll_src, os.path.join(t_dir, "MsNativePipe.dll"))
+                                except Exception as ex:
+                                    print(f"Lỗi sao chép MDL vào {t_dir}: {ex}", file=sys.stderr)
+
+                        # 3. Tạo cấu hình auto-load vĩnh viễn (MsNativePipe.cfg)
+                        cfg_content = (
+                            "#======================================================================\n"
+                            "# MsNativePipe.cfg - Auto-load MicroStation High-Performance MCP Pipe\n"
+                            "#======================================================================\n\n"
+                            "MS_DGNAPPS > MsNativePipe\n\n"
+                            "MS_MDLAPPS > $(_USTN_STANDARDS)mdlapps/intelnt/\n"
+                            "MS_MDLAPPS > $(MSDIR)mdlapps/\n"
+                        )
+                        cfg_targets = [
+                            os.path.join(ms_dir, "config", "appl", "MsNativePipe.cfg"),
+                            r"C:\ProgramData\Bentley\MicroStation V8i (SELECTseries)\WorkSpace\standards\config\appl\MsNativePipe.cfg"
+                        ]
+                        for c_cfg in cfg_targets:
+                            try:
+                                os.makedirs(os.path.dirname(c_cfg), exist_ok=True)
+                                with open(c_cfg, "w", encoding="utf-8") as f:
+                                    f.write(cfg_content)
+                            except Exception as ex:
+                                print(f"Lỗi ghi {c_cfg}: {ex}", file=sys.stderr)
+
+                        # 4. Kích hoạt tức thì nếu MicroStation đang mở
+                        if is_microstation_running():
+                            try:
+                                import pythoncom
+                                import win32com.client
+                                pythoncom.CoInitialize()
+                                _app = win32com.client.GetActiveObject("MicroStationDGN.Application")
+                                if _app:
+                                    _app.CadInputQueue.SendCommand("MDL LOAD MsNativePipe")
+                                    _app.CadInputQueue.SendCommand("MDL SILENTLOAD MsNativePipe")
+                                    _app.ShowCommand("Vigela Native MCP: Ready on pipe!")
+                            except Exception:
+                                pass
+                except Exception as ex:
+                    print(f"Lỗi cài đặt MicroStation Native: {ex}", file=sys.stderr)
+
             # Bước 4: Tạo Shortcut Desktop → trỏ vào Vigela_AI_Launcher.exe
             if self.shortcut_var.get():
                 self.update_status("4/4. Đang tạo biểu tượng Desktop...", 95)
@@ -524,7 +757,8 @@ class InstallerGUI:
         msg_parts = [
             "🎉 ĐÃ CÀI ĐẶT THÀNH CÔNG VIGELA AI APP!\n",
             "✓ Đã tạo biểu tượng 'Vigela AI App' ra màn hình Desktop.",
-            "✓ Đã tự động cấu hình MCP Server kết nối MicroStation V8i (62 công cụ CAD).\n",
+            "✓ Đã tự động cấu hình MCP Server kết nối MicroStation V8i (62 công cụ CAD).",
+            "✓ Đã tự động cài đặt Rule & Skill đo đạc bản đồ địa chính chuẩn TT 26/2024 & TT 23/2025 cho Antigravity, Cursor, Claude.\n",
         ]
         if ag_paths:
             msg_parts.append(f"📁 File Antigravity MCP đã cấu hình:\n  {ag_paths[0]}\n")

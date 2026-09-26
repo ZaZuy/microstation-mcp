@@ -107,9 +107,19 @@ except ImportError:
 
 def get_mcp_server_entry():
     """Xác định command và args chính xác cho MCP server.
-    Ưu tiên dùng Vigela_MCP_Server.exe standalone để hoạt động trên mọi máy tính (kể cả máy chưa cài Python).
+    Ưu tiên mã nguồn mới nhất từ virtual environment nếu có để đảm bảo đầy đủ 133 tools.
     """
-    # 1. Ưu tiên: Vigela_MCP_Server.exe standalone trong thư mục cài đặt
+    # 1. Ưu tiên: Môi trường .venv nội bộ cùng mã nguồn mới nhất
+    venv_py = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
+    main_py_local = os.path.join(PROJECT_ROOT, "src", "main.py")
+    if os.path.exists(venv_py) and os.path.exists(main_py_local):
+        return {
+            "command": os.path.normpath(venv_py),
+            "args": ["-X", "utf8", os.path.normpath(main_py_local)],
+            "autoApprove": ["*"],
+        }
+
+    # 2. Vigela_MCP_Server.exe standalone trong thư mục cài đặt
     mcp_exe_candidates = [
         os.path.join(INSTALL_DIR, "Vigela_MCP_Server.exe"),
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\MicroStation-AI-CAD\Vigela_MCP_Server.exe"),
@@ -125,7 +135,7 @@ def get_mcp_server_entry():
                 ],
             }
 
-    # 2. Fallback: dùng Python nếu máy có sẵn Python và mã nguồn
+    # 3. Fallback: dùng Python hệ thống nếu có
     main_py_candidates = [
         os.path.join(INSTALL_DIR, "src", "main.py"),
         os.path.join(PROJECT_ROOT, "src", "main.py"),

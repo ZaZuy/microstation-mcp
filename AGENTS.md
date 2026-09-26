@@ -1,88 +1,163 @@
-# Hướng Dẫn Dành Cho AI Agent (AGENTS.md)
+# QUY TẮC KỸ THUẬT ĐO ĐẠC VÀ BIÊN TẬP BẢN ĐỒ ĐỊA CHÍNH VIỆT NAM (MICROSTATION V8i)
 
-Tài liệu này cung cấp các nguyên tắc hành vi, quy chuẩn kỹ thuật và chuỗi hành động tối ưu cho các AI Agent (Antigravity, Claude, Cursor, v.v.) khi kết nối và tương tác với MicroStation V8i thông qua MCP Server (118 công cụ CAD nguyên thủy tương ứng đầy đủ các Tool Boxes của MicroStation V8i).
+Khi người dùng yêu cầu đo đạc, vẽ, biên tập thửa đất, phân lớp level, tạo nhãn thửa, trích lục địa chính, tính diện tích hoặc kiểm tra ranh giới thửa đất trên MicroStation V8i:
 
----
+### 1. Căn cứ Pháp lý & Tiêu chuẩn Kỹ thuật bắt buộc
 
-## 1. Nguyên Tắc Cốt Lõi (Prime Directives)
+- **Thông tư số 26/2024/TT-BTNMT** ngày 26/11/2024 của Bộ Tài nguyên và Môi trường.
+- **Thông tư số 23/2025/TT-BNNMT** ngày 20/06/2025 (sửa đổi, bổ sung TT 26/2024/TT-BTNMT và Văn bản hợp nhất số 34/VBHN-BNNMT).
+- **Luật Đất đai năm 2024** (Luật số 31/2024/QH15).
 
-1. **Phân Định Rõ Ràng: AI Là Bộ Não - MCP Server Là Bàn Tay:**
-   - **AI Agent đóng vai trò là BỘ NÃO (Brain):** Đảm nhiệm toàn bộ việc tư duy, tính toán tọa độ, phân tích hình học, ra quyết định và lập kế hoạch vẽ.
-   - **MCP Server đóng vai trò là BÀN TAY (Hands):** Cung cấp các API CAD nguyên thủy (Primitives), tương tác 1:1 trực tiếp với MicroStation V8i COM mà không chứa bất kỳ thuật toán tự chế nào bên trong.
-2. **Kiểm Tra Trạng Thái Trước Khi Hành Động:**
-   - Luôn luôn gọi `get_drawing_info` (hoặc đọc Resource `ms://drawing/info`) trước tiên để xác định:
-     - Tên file bản vẽ đang mở.
-     - Hệ đơn vị của bản vẽ (`Master Unit`: mét `m`, milimet `mm`, v.v.).
-     - Loại không gian đồ họa (2D hay 3D).
-3. **Không Tự Ý Đoán Đơn Vị:**
-   - Mọi kích thước hình học truyền vào các tool (`draw_line`, `draw_rectangle`, `draw_circle`, `place_text`) phải theo đơn vị thực của bản vẽ (Master Unit).
-   - Ví dụ: Nếu bản vẽ có đơn vị là `m`, khoảng cách 10.5m là `10.5`. Nếu đơn vị là `mm`, khoảng cách đó phải là `10500`.
-4. **Phân Lớp Rõ Ràng (Level Separation):**
-   - Đặt đối tượng vào đúng Level chuyên trách (ví dụ: `TimDuong`, `RanhGioi`, `GhiChu`, `KhungTen`).
-   - Nếu level chưa tồn tại, hãy dùng `create_level` hoặc truyền trực tiếp tên level vào tham số `level` của các hàm vẽ (hệ thống sẽ tự động khởi tạo level nếu chưa có).
-5. **Trực Quan Hóa Sau Khi Vẽ (Auto-fit & Capture):**
-   - Sau khi hoàn thành một loạt thao tác dựng hình, hãy gọi `fit_view(1)` để cửa sổ MicroStation tự động căn chỉnh và hiển thị toàn bộ đối tượng vừa vẽ lên màn hình cho người dùng kiểm tra.
-   - Khi cần xem trực quan hình ảnh bản vẽ, gọi `capture_view_image("D:\\output.png")` để xuất ảnh xem trước.
-6. **Tuyệt Đối Không Chạy Script Can Thiệp COM Ngoài MCP:**
-   - Toàn bộ giao tiếp với MicroStation V8i PHẢI thông qua 118 công cụ MCP nguyên thủy có sẵn.
-   - KHÔNG viết/chạy các đoạn mã Python/PowerShell ngoài (`win32com`, `GetActiveObject`, v.v.) vì MCP Server đang giữ quyền kết nối COM độc quyền.
-7. **Bảng Chỉ Số Màu Chuẩn MicroStation V8i (Color Table):**
-   - Màu 0: Trắng / Đen (White / Black, RGB: 255, 255, 255)
-   - Màu 1: Xanh dương (Blue)
-   - Màu 2: Xanh lá cây (Green)
-   - Màu 3: Đỏ (Red)
-   - Màu 4: **Vàng (Yellow, RGB: 255, 255, 0)**
-   - Màu 5: Tím hồng (Magenta)
-   - Màu 6: Cam / Nâu (Orange / Brown)
-   - Màu 7: Xanh lơ / Cyan (Xanh ngọc / lục lam)
+### 2. Hệ Tọa độ & Đơn vị Thiết kế (Điều 3)
 
----
+- Hệ quy chiếu quốc gia **VN-2000**, phép chiếu hình trụ ngang đồng góc, múi chiếu **3°**, hệ số co giãn chiều dài **k₀ = 0.9999**.
+- Kinh tuyến trục theo từng tỉnh/thành phố quy định tại **Phụ lục 01** của Thông tư 26/2024 (và TT 23/2025).
+- **MicroStation Working Units**:
+  - Master Unit = Mét (`m`)
+  - Sub Unit = Milimét (`mm`)
+  - Resolution = 1000
+- **Global Origin**: X = 500.000 m, Y = 1.000.000 m.
 
-## 2. Bản Đồ 16 Nhóm Công Cụ CAD Nguyên Thủy (118 Tools - Phủ Kín Tool Boxes MicroStation V8i)
+### 3. Bảng Phân lớp Level Bắt buộc (Phụ lục 21 TT 26/2024)
 
-| Nhóm Tool Box MicroStation | Số lượng | Danh Sách Tools CAD Nguyên Thủy (1:1 COM & Key-in) |
-|---|:---:|---|
-| **1. Linear Elements, Polygons, Circles, Curves (Drawing)** | **21** | `draw_line`, `draw_linestring`, `draw_shape`, `draw_rectangle`, `draw_circle`, `draw_arc`, `draw_ellipse`, `draw_point`, `draw_bspline_curve`, `place_cell`, `create_region`, `flood_fill_region`, `draw_smartline`, `draw_multiline`, `draw_orthogonal_shape`, `draw_regular_polygon`, `draw_half_circle`, `construct_angle_bisector`, `construct_min_distance_line`, `draw_points_along_element`, `draw_points_at_intersection` |
-| **2. Measure & Dimensioning** | **9** | `measure_distance`, `measure_area`, `measure_length`, `measure_angle_between_lines`, `dimension_linear`, `dimension_aligned`, `dimension_radius`, `dimension_angular`, `dimension_element` |
-| **3. Manipulate & Modify** | **21** | `move_element`, `copy_element`, `rotate_element`, `scale_element`, `mirror_element`, `fill_element`, `change_element_symbology`, `drop_element`, `move_parallel`, `construct_circular_fillet`, `construct_chamfer`, `extend_line`, `extend_to_intersection`, `trim_element`, `insert_vertex`, `delete_vertex`, `delete_part_of_element`, `array_rectangular`, `array_polar`, `align_elements`, `drop_complex` |
-| **4. Text & Annotations** | **4** | `place_text`, `place_text_node`, `find_text`, `replace_text` |
-| **5. View Control** | **8** | `fit_view`, `zoom_window`, `pan_view`, `zoom_in`, `zoom_out`, `get_view_info`, `capture_view_image`, `rotate_view` |
-| **6. Files, Models & References (Xrefs)** | **14** | `open_design_file`, `save_design_file`, `create_new_dgn`, `get_models`, `activate_model`, `create_model`, `delete_model`, `get_references`, `attach_reference`, `detach_reference`, `scan_reference_elements`, `get_reference_levels`, `reload_reference`, `clip_reference` |
-| **7. Batch Operations** | **3** | `batch_draw_points`, `batch_draw_lines`, `batch_place_texts` |
-| **8. Attributes & Settings** | **7** | `set_active_level`, `set_active_color`, `set_active_weight`, `set_active_style`, `create_level`, `set_level_display`, `match_element_attributes` |
-| **9. Selection, Query & Inspection** | **6** | `get_drawing_info`, `get_levels`, `get_active_settings`, `scan_elements`, `get_element_details`, `delete_element_by_id` |
-| **10. Key-in & Command Engine** | **2** | `send_keyin`, `run_keyin_script` |
-| **11. Raster Manager** | **4** | `attach_raster_image`, `detach_raster_image`, `fit_raster`, `set_raster_display` |
-| **12. Groups & Complex Entities** | **4** | `create_complex_chain`, `create_complex_shape`, `create_graphic_group`, `ungroup_graphic_group` |
-| **13. Patterning (Hatch & Crosshatch)** | **4** | `hatch_area`, `crosshatch_area`, `pattern_area`, `delete_pattern` |
-| **14. Fence & Selection Sets** | **5** | `place_fence`, `clear_fence`, `modify_fence_contents`, `select_elements_by_criteria`, `clear_selection` |
-| **15. Tags & Non-graphic Attributes** | **2** | `attach_tag`, `get_element_tags` |
-| **16. 3D Primitives & Solids** | **4** | `draw_slab`, `draw_cylinder`, `draw_sphere`, `draw_torus` |
-| **TỔNG CỘNG** | **118** | **Toàn bộ là các API CAD nguyên thủy của MicroStation V8i** |
+#### 3.1. Nhóm Địa hình
+| Level | Đối tượng | Color | Weight | Ghi chú |
+|-------|-----------|-------|--------|---------|
+| 1 | Đường bình độ cơ bản, bình độ cái, nửa khoảng cao đều | 6 (Nâu) | 0 hoặc 1 | Độ cao |
+| 3 | Ghi chú độ cao, ghi chú bình độ | 6 (Nâu) | 0 | |
+| 5 | Tỷ sâu, tỷ cao | 6 | 0 | |
 
----
+#### 3.2. Nhóm Điểm khống chế trắc địa
+| Level | Đối tượng | Color | Weight | Ghi chú |
+|-------|-----------|-------|--------|---------|
+| 6 | Điểm thiên văn, điểm tọa độ Quốc gia, điểm độ cao Quốc gia | 0 | 0 | Số hiệu, độ cao |
+| 7 | Điểm độ cao kỹ thuật | 0 | 0 | |
+| 8 | Điểm địa chính, điểm khống chế đo vẽ, điểm trạm đo | 0 | 0 | |
+| 9 | Ghi chú số hiệu điểm, độ cao | 4 | 0 | |
 
-## 3. Các Tác Vụ Mẫu Điển Hình
+#### 3.3. Nhóm Thửa đất (quan trọng nhất)
+| Level | Đối tượng | Color | Weight | Style | Ghi chú |
+|-------|-----------|-------|--------|-------|---------|
+| **10** | **Ranh giới thửa đất hiện trạng** (bờ thửa, đường bao khép kín liên tục) | **0** (Đen) | 0 hoặc 1 | 0 (nét liền) | Độ rộng bờ thửa |
+| **61** | **Ranh giới thửa đất theo pháp lý** (theo GCN / sổ đỏ) | **3** (Đỏ) | 1 | 0 | |
+| **11** | **Điểm nhãn thửa (tâm thửa đất)** | **4** (Vàng) | 0 | | Tọa độ tâm thửa |
+| **13** | **Số thứ tự thửa đất + gạch ngang phân số** | **4** (Vàng) | 0 | | |
+| **4** | **Diện tích thửa đất hiện trạng** (dưới gạch ngang) | **4** (Vàng) | 0 | | Làm tròn 1 chữ số thập phân (m²) |
+| **2** | **Loại đất hiện trạng** (ODT, ONT, LUC, CLN, TSC…) | **4** (Vàng) | 0 | | Nằm trong đường bao thửa |
+| 12 | Ký hiệu vị trí có độ rộng / ghi chú độ rộng bờ thửa | 4 | 0 | | Bắt điểm đầu/cuối cạnh thửa |
+| 29 | Loại đất pháp lý (theo giấy tờ) | 4 | 0 | | |
+| 49 | Thông tin lịch sử (loại đất trước chỉnh lý) | 4 | 0 | | |
 
-### A. Vẽ và đo đạc trắc địa từ số liệu khảo sát:
-1. Dùng `batch_draw_points` để chấm toàn bộ tọa độ tim mốc.
-2. Dùng `batch_place_texts` để đặt tên các mốc tương ứng.
-3. Dùng `draw_linestring` hoặc `draw_shape` nối ranh giới.
-4. Dùng `measure_area(element_id=...)` để tính toán diện tích thửa đất.
-5. Dùng `fit_view(1)` để căn vừa màn hình.
+#### 3.4. Nhóm Nhà, khối nhà
+| Level | Đối tượng | Color | Weight | Style | Ghi chú |
+|-------|-----------|-------|--------|-------|---------|
+| **14** | **Tường nhà, ranh giới nhà** | **0** (Đen) | 0 | **2** (nét đứt) | Nếu trùng ranh thửa → vẽ nét liền Level 10 |
+| **15** | **Nhãn nhà** (kết cấu + số tầng: b2, g1, s3…) | **4** (Vàng) | 0 | | b=bê tông, g=gạch, s=sắt thép, go=gỗ, t=tạm |
+| 16 | Ký hiệu tường chung/riêng + ghi chú về nhà | 4 | 0 | | |
 
-### B. Hiệu chỉnh và biên tập bản đồ:
-1. Dùng `find_text` tìm các vị trí ghi chú cần sửa.
-2. Dùng `replace_text` hoặc `change_element_symbology` để đổi font hoặc màu.
-3. Dùng `move_element` hoặc `rotate_element` để định vị lại các đối tượng bị lệch.
-4. Dùng `save_design_file` để lưu lại.
+#### 3.5. Nhóm Giao thông
+| Level | Đối tượng | Color | Weight | Ghi chú |
+|-------|-----------|-------|--------|---------|
+| 20 | Đường ray (đường sắt) | 1 | 0 | |
+| 21 | Chỉ giới đường sắt | 1 | 0 | Là ranh giới thửa |
+| 22 | Phần trải mặt, lòng đường, chỗ thay đổi chất liệu | 1 | 0 | |
+| 23 | Chỉ giới đường | 1 | 0 | Là ranh giới thửa |
+| 24 | Chỉ giới đường nằm trong thửa | 1 | 0 | Không phải ranh thửa |
+| 25 | Đường theo nửa tỷ lệ (1 nét) | 1 | 0 | |
+| 26 | Ký hiệu độ rộng đường + ghi chú | 1 | 0 | |
+| 27 | Cầu | 1 | 0 | |
+| 28 | Tên đường, tên phố, tính chất đường | 1 | 0 | |
 
-### C. Tạo Region và Đổ màu nhanh (Fast Flood & Fill):
-1. Dùng `find_text` hoặc `scan_elements` để lấy tọa độ hạt giống (Seed Point) trong lòng thửa đất.
-2. Dùng `create_region(method="flood", seed_x=..., seed_y=..., fill_color=...)` để đổ màu kín vùng ranh giới.
-3. Dùng `zoom_window` hoặc `fit_view(1)` để căn chuẩn màn hình hiển thị cho người dùng.
+#### 3.6. Nhóm Thủy hệ
+| Level | Đối tượng | Color | Weight | Ghi chú |
+|-------|-----------|-------|--------|---------|
+| 30 | Đường mép nước | 2 (Xanh lá) | 0 | Cố định / không cố định |
+| 31 | Đường bờ | 2 | 0 | Là ranh giới thửa |
+| 32 | Kênh, mương, rãnh thoát nước | 2 | 0 | Là ranh giới thửa |
+| 33 | Đường giới hạn thủy văn nằm trong thửa | 2 | 0 | Không tham gia tạo thửa |
+| 34 | Suối, kênh nửa tỷ lệ (1 nét) | 2 | 0 | |
+| 35 | Ký hiệu độ rộng + hướng dòng chảy | 2 | 0 | |
+| 36 | Cống, đập | 2 | 0 | |
+| 37 | Đường mặt đê | 0 | 0 | |
+| 38 | Đường giới hạn chân đê | 0 | 0 | Là ranh giới thửa |
+| 39 | Tên sông, hồ, ao, suối, kênh, mương | 2 | 0 | |
 
-### D. Quản lý ảnh Raster lót nền (Raster Underlay):
-1. Dùng `attach_raster_image(file_path="...")` để gắn ảnh scan bản đồ lót dưới nền CAD.
-2. Dùng `fit_raster(view_number=1)` để phóng vừa màn hình khớp trọn tấm ảnh raster.
-3. Dùng `set_raster_display(display=False)` để tạm ẩn lớp ảnh khi chỉ muốn xem đường nét vector.
+#### 3.7. Nhóm Địa giới hành chính
+| Level | Đối tượng | Color | Weight | Ghi chú |
+|-------|-----------|-------|--------|---------|
+| 40 | Biên giới quốc gia (xác định / chưa xác định) | 0 | 0 | |
+| 41 | Mốc biên giới quốc gia + số hiệu | 0 | 0 | |
+| 42 | Địa giới tỉnh (xác định / chưa xác định) | 0 | 0 | |
+| 43 | Mốc địa giới tỉnh | 0 | 0 | |
+| 44 | Địa giới huyện | 0 | 0 | |
+| 45 | Mốc địa giới huyện | 0 | 0 | |
+| 46 | Địa giới xã (xác định / chưa xác định) | 0 | 0 | Lưu ý ĐVHC 2 cấp theo TT 23/2025 |
+| 47 | Mốc địa giới xã | 0 | 0 | |
+| 48 | Tên địa danh, cụm dân cư | 4 | 0 | |
+
+#### 3.8. Nhóm Quy hoạch & Khung
+| Level | Đối tượng | Color | Weight | Ghi chú |
+|-------|-----------|-------|--------|---------|
+| 50 | Chỉ giới đường quy hoạch, hành lang giao thông | **3** (Đỏ) | 0 | |
+| 51 | Mốc giới quy hoạch | **3** (Đỏ) | 0 | |
+| **63** | **Khung bản đồ, lưới km, bảng chắp 9 mảnh, ghi chú ngoài khung** | **0** | 0 | |
+
+#### 3.9. Các level tùy chọn khác
+- Level 17–19: Đối tượng điểm quan trọng (kinh tế, văn hóa, xã hội)
+- Level 52–54: Phân vùng địa danh / chất lượng / phân mảnh
+- Level 55–59: Cơ sở hạ tầng (điện, nước thải, viễn thông, cấp nước, hành lang lưới điện)
+
+### 4. Bảng Quy chuẩn Màu sắc (Color Code) – theo Phụ lục 22
+
+| Color | Tên màu | RGB chính thức | Sử dụng cho |
+|-------|---------|----------------|-------------|
+| **0** | Đen / Trắng | 255,255,255 | Ranh thửa hiện trạng (Level 10), tường nhà (Level 14), đê, khung bản đồ, điểm khống chế, địa giới |
+| **1** | Xanh lơ | - | Giao thông (Level 20–28) – theo thực tế ngành |
+| **2** | Xanh lá | 0,255,0 | Thủy hệ (Level 30–39) |
+| **3** | Đỏ | 255,0,0 | Ranh thửa pháp lý (Level 61), chỉ giới quy hoạch (Level 50–51) |
+| **4** | Vàng | - | Nhãn thửa, số thửa, diện tích, loại đất, ghi chú điểm (Level 2,4,11,13,15…) |
+| **6** | Nâu / Cam | 255,117,0 | Đường bình độ + ghi chú độ cao (Level 1, 3, 5) |
+
+### 5. Quy cách Trình bày Nhãn Thửa Đất (Điều 13 & Phụ lục 22)
+
+- Nhãn thửa có dạng phân số:  
+  $$\frac{\text{Số thứ tự thửa}}{\text{Diện tích}}$$  
+  và dòng dưới là **Loại đất** (ví dụ: $\frac{25}{245,8}$ và bên dưới `ODT`).
+- Đặt tại **tâm thửa đất** (Level 11).
+- Số thứ tự thửa nằm **trên** gạch ngang (Level 13).
+- Diện tích nằm **dưới** gạch ngang (Level 4), làm tròn **1 chữ số thập phân** (m²).
+- Loại đất hiện trạng (Level 2) nằm dưới cùng.
+- **Đánh số thứ tự thửa**: Số Ả Rập từ 1 đến hết, từ cực Bắc xuống Nam, dích dắc từ Tây sang Đông.
+- Khi tách/hợp thửa có lối đi → thể hiện lối đi riêng.
+
+### 6. Quy tắc Vẽ Ranh giới & Nhà (Phụ lục 22)
+
+- Ranh giới thửa đất **phải khép kín liên tục** (Level 10).
+- Khi ranh thửa **trùng** với thủy hệ hoặc đường giao thông → **không vẽ** ranh thửa Level 10, coi đối tượng thủy hệ/giao thông là ranh giới thửa.
+- Tường nhà (Level 14) vẽ **nét đứt (Style 2)**.  
+  Nếu tường nhà trùng ranh thửa → **chỉ vẽ nét liền Level 10**, không vẽ nét đứt.
+- Nhà nhiều tầng có phạm vi khác nhau → thể hiện ký hiệu riêng từng tầng.
+
+### 7. BẮT BUỘC SỬ DỤNG MCP TOOL – TUYỆT ĐỐI CẤM CHẠY SCRIPT PYTHON
+
+- **TUYỆT ĐỐI KHÔNG ĐƯỢC** tự ý viết script Python, lệnh `python -c ...`, hoặc script PowerShell qua terminal để gọi COM `win32com.client` kết nối MicroStation.
+- **BẮT BUỘC 100%** phải sử dụng các công cụ có sẵn của MCP Server `microstation-v8i`.
+- **Ưu tiên hàng đầu**: Sử dụng công cụ trọn gói `cad_draw_workflow` để thiết lập Level/Color/Weight + vẽ Shape/Line/Text + Fit View trong 1 lượt gọi duy nhất.
+- Luôn kiểm tra tính **khép kín** của thửa đất bằng `measure_area`. Nếu không khép kín → cảnh báo ngay cho người dùng.
+
+### 8. Quy tắc Tự động khi Nhận Yêu cầu "Số Hóa" từ Ảnh
+
+Khi người dùng gửi ảnh và yêu cầu *"số hóa"*, *"chuyển ảnh thành CAD"*, *"vẽ từ ảnh"*:
+
+1. **Đọc dữ liệu kỹ thuật từ ảnh (OCR)**: Ưu tiên đọc Bảng tọa độ góc ranh (X, Y VN-2000), hoặc đọc chính xác chiều dài các cạnh và góc. Tuyệt đối không ước lượng pixel bằng mắt.
+2. **Chèn ảnh nền raster**: Gọi `attach_raster_image` chèn file ảnh vào MicroStation làm lớp nền đối soát.
+3. **Vẽ vector chính xác**: Gọi `cad_draw_workflow` dựng thửa đất theo tọa độ/kích thước đã đọc, gán đúng:
+   - Level 10 (ranh thửa hiện trạng)
+   - Level 11, 13, 4, 2 (nhãn thửa đầy đủ)
+4. **Đối soát & Fit view**: Gọi `measure_area` đo diện tích hình vừa dựng, so sánh với diện tích trên ảnh và gọi `fit_view`.
+
+### 9. Các quy định bổ sung quan trọng khác
+
+- Sai số vị trí điểm trên ranh giới thửa so với điểm khống chế gần nhất không được vượt quá giới hạn theo tỷ lệ bản đồ (Điều 8).
+- Khung bản đồ và lưới km phải tuân thủ Điều 4 và mẫu tại Phụ lục 22.
+- Khi biên tập phải đảm bảo thứ tự ưu tiên thể hiện: ký hiệu dạng điểm → nhãn thửa → các yếu tố khác.

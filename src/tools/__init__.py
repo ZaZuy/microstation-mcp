@@ -1,8 +1,14 @@
 """
 src/tools package
-Hợp nhất và đăng ký toàn bộ 16 nhóm công cụ nguyên thủy MicroStation V8i vào MCP Server (109 CAD primitives).
-Toàn bộ là các API CAD cơ bản tương ứng trực tiếp các Tool Box của MicroStation V8i,
-AI đóng vai trò là bộ não điều khiển trực tiếp.
+Hợp nhất và đăng ký toàn bộ nhóm công cụ MicroStation V8i vào MCP Server.
+
+Có 2 lớp tool:
+  1. COM Tools (16 nhóm, ~62+ tools): Giao tiếp qua COM out-of-process
+     - Không cần MDL, chỉ cần MicroStation đang chạy
+  2. Native Tools (2 nhóm, ~23 tools): Giao tiếp qua Named Pipe MDL
+     - Cần MDL app MsNativePipe.ma đang load: MDL LOAD MsNativePipe
+     - Nhanh hơn COM ~10-50x
+     - Tên tool có prefix 'native_' hoặc 'batch_' / 'begin_' / 'end_' / 'get_model_snapshot'
 """
 
 from src.tools.drawing import register_drawing_tools
@@ -21,10 +27,22 @@ from src.tools.pattern import register_pattern_tools
 from src.tools.fence import register_fence_tools
 from src.tools.tags import register_tag_tools
 from src.tools.solids_3d import register_solids_tools
+from src.tools.workflow import register_workflow_tools
+
+# Native Pipe tools — yêu cầu MDL MsNativePipe.ma
+from src.tools.native_batch import register_native_batch_tools
+from src.tools.drawing_native import register_drawing_native_tools
+from src.core._pipe_singleton import get_pipe_client
 
 
 def register_tools(mcp):
-    """Đăng ký toàn bộ 16 nhóm công cụ CAD nguyên thủy vào MCP Server."""
+    """
+    Đăng ký toàn bộ nhóm công cụ CAD vào MCP Server.
+
+    - 16 nhóm COM tools (backward compatible, không cần MDL)
+    - 2 nhóm Native tools (yêu cầu MDL MsNativePipe.ma — nhanh hơn nhiều)
+    """
+    # --- COM Tools (16 nhóm, không cần MDL) ---
     register_drawing_tools(mcp)
     register_dimension_tools(mcp)
     register_modify_tools(mcp)
@@ -41,6 +59,14 @@ def register_tools(mcp):
     register_fence_tools(mcp)
     register_tag_tools(mcp)
     register_solids_tools(mcp)
+    register_workflow_tools(mcp)
+
+    # --- Native Pipe Tools (yêu cầu MDL, nhanh hơn COM) ---
+    # Lấy singleton PipeClient — được tạo lazy (không kết nối ngay)
+    pipe_client = get_pipe_client()
+    register_native_batch_tools(mcp, pipe_client)
+    register_drawing_native_tools(mcp, pipe_client)
 
 
 __all__ = ["register_tools"]
+

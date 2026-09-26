@@ -61,13 +61,14 @@ def build_exe():
     print(f"Python thực thi: {py_exe}")
     icon_path = os.path.join(PROJECT_ROOT, "assets", "vigela_icon.ico")
 
-    # Xóa sạch thư mục build & dist cũ
-    if os.path.exists(DIST_DIR):
-        shutil.rmtree(DIST_DIR, ignore_errors=True)
+    # Không xóa dist_dir nếu đã có sẵn các file exe
     if os.path.exists(BUILD_DIR):
         shutil.rmtree(BUILD_DIR, ignore_errors=True)
     os.makedirs(DIST_DIR, exist_ok=True)
     os.makedirs(BUILD_DIR, exist_ok=True)
+
+    launcher_exe = os.path.join(DIST_DIR, f"{LAUNCHER_EXE_NAME}.exe")
+    mcp_exe = os.path.join(DIST_DIR, f"{MCP_SERVER_EXE_NAME}.exe")
 
     # =========================================================================
     # BƯỚC 1: Đóng gói Standalone GUI Launcher (Vigela_AI_Launcher.exe)
@@ -105,13 +106,12 @@ def build_exe():
     if res1.returncode != 0:
         print("Lỗi: Không thể đóng gói Vigela_AI_Launcher.exe!")
         return False
-    launcher_exe = os.path.join(DIST_DIR, f"{LAUNCHER_EXE_NAME}.exe")
     print(f"    => Đã tạo: {launcher_exe} ({os.path.getsize(launcher_exe)//1024//1024} MB)")
 
     # =========================================================================
     # BƯỚC 2: Đóng gói Standalone MCP Server (Vigela_MCP_Server.exe)
     # =========================================================================
-    print("\n[2/3] Đang đóng gói Vigela_MCP_Server.exe (MCP Console Server, 62 công cụ CAD)...")
+    print("\n[2/3] Đang đóng gói Vigela_MCP_Server.exe (MCP Console Server, 146 công cụ CAD)...")
     mcp_cmd = [
         py_exe, "-m", "PyInstaller",
         "--onefile",  # Chế độ console để giao tiếp stdio với Claude Desktop & Antigravity
@@ -122,6 +122,13 @@ def build_exe():
         "--clean",
         "--icon", icon_path,
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'src')};src",
+        "--add-data", r"C:\Users\SERVER\AppData\Local\Programs\Python\Python314\tcl\tcl8.6;_tcl_data",
+        "--add-data", r"C:\Users\SERVER\AppData\Local\Programs\Python\Python314\tcl\tk8.6;_tk_data",
+        "--exclude-module", "torch",
+        "--exclude-module", "torchvision",
+        "--exclude-module", "tensorflow",
+        "--exclude-module", "scipy",
+        "--exclude-module", "matplotlib",
         "--hidden-import", "fastmcp",
         "--hidden-import", "mcp",
         "--hidden-import", "anyio",
@@ -155,7 +162,6 @@ def build_exe():
     if res2.returncode != 0:
         print("Lỗi: Không thể đóng gói Vigela_MCP_Server.exe!")
         return False
-    mcp_exe = os.path.join(DIST_DIR, f"{MCP_SERVER_EXE_NAME}.exe")
     print(f"    => Đã tạo: {mcp_exe} ({os.path.getsize(mcp_exe)//1024//1024} MB)")
 
     # =========================================================================
@@ -175,6 +181,10 @@ def build_exe():
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'src')};src",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'launcher')};launcher",
         "--add-data", f"{os.path.join(PROJECT_ROOT, 'assets')};assets",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'mdl')};mdl",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'skills')};skills",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'rules')};rules",
+        "--add-data", f"{os.path.join(PROJECT_ROOT, 'AGENTS.md')};.",
         "--add-data", r"C:\Users\SERVER\AppData\Local\Programs\Python\Python314\tcl\tcl8.6;_tcl_data",
         "--add-data", r"C:\Users\SERVER\AppData\Local\Programs\Python\Python314\tcl\tk8.6;_tk_data",
         # Nhúng cả 2 file exe vào bên trong bộ cài duy nhất
@@ -201,6 +211,9 @@ def build_exe():
     install_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "MicroStation-AI-CAD")
     if os.path.exists(install_dir) and os.path.exists(mcp_exe):
         try:
+            subprocess.run(["taskkill", "/F", "/IM", "Vigela_MCP_Server.exe"], capture_output=True)
+            import time
+            time.sleep(0.5)
             target_mcp = os.path.join(install_dir, f"{MCP_SERVER_EXE_NAME}.exe")
             shutil.copy2(mcp_exe, target_mcp)
             print(f"    => Đã cập nhật trực tiếp vào thư mục cài đặt: {target_mcp}")

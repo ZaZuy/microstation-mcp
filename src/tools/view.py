@@ -52,7 +52,8 @@ def register_view_tools(mcp):
         """
         app = bridge.get_app()
         try:
-            v = app.Views(view_number)
+            dgn = bridge.get_active_file()
+            v = dgn.Views(view_number)
             p1 = bridge.create_point(min_x, min_y, 0.0)
             p2 = bridge.create_point(max_x, max_y, 0.0)
             v.ZoomWindow(p1, p2)
@@ -74,7 +75,8 @@ def register_view_tools(mcp):
         """
         app = bridge.get_app()
         try:
-            v = app.Views(view_number)
+            dgn = bridge.get_active_file()
+            v = dgn.Views(view_number)
             orig = v.Origin
             new_orig = bridge.create_point(orig.X + dx, orig.Y + dy, orig.Z)
             v.Origin = new_orig

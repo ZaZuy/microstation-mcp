@@ -5,6 +5,7 @@ Các công cụ truy vấn, kiểm tra và phân tích đối tượng bản v�
 
 from typing import Dict, Any, List, Optional
 from src.core.ms_bridge import bridge
+from src.tools.dimension import _get_polygon_from_element
 
 
 def register_query_tools(mcp):
@@ -195,82 +196,69 @@ def register_query_tools(mcp):
             if el_type == 17:  # Text
                 try:
                     item["type_name"] = "Text"
-                    item["text"] = el.AsTextElement().Text
-                    pt = el.AsTextElement().Origin
-                    item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
+                    te = getattr(el, "AsTextElement", None)
+                    te = te() if callable(te) else te
+                    if te:
+                        item["text"] = str(getattr(te, "Text", ""))
+                        pt = te.Origin
+                        item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
                 except Exception:
                     pass
             elif el_type == 7:  # TextNode
                 try:
                     item["type_name"] = "TextNode"
-                    lines = []
-                    tne = el.AsTextNodeElement()
-                    for i in range(1, tne.TextLinesCount + 1):
-                        lines.append(tne.TextLine(i))
-                    item["text"] = "\n".join(lines)
-                    pt = tne.Origin
-                    item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
+                    tne = getattr(el, "AsTextNodeElement", None)
+                    tne = tne() if callable(tne) else tne
+                    if tne:
+                        lines = []
+                        cnt = getattr(tne, "TextLinesCount", 0)
+                        for i in range(1, cnt + 1):
+                            lines.append(tne.TextLine(i))
+                        item["text"] = "\n".join(lines)
+                        pt = tne.Origin
+                        item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
                 except Exception:
                     pass
             elif el_type == 3:  # Line
                 try:
                     item["type_name"] = "Line"
-                    le = el.AsLineElement()
-                    p1 = le.StartPoint
-                    p2 = le.EndPoint
-                    item["points"] = [[round(p1.X, 3), round(p1.Y, 3)], [round(p2.X, 3), round(p2.Y, 3)]]
-                except Exception:
-                    pass
-                try:
-                    item["length"] = round(le.Length, 3)
+                    le = getattr(el, "AsLineElement", None)
+                    le = le() if callable(le) else le
+                    if le:
+                        p1 = le.StartPoint
+                        p2 = le.EndPoint
+                        item["points"] = [[round(p1.X, 3), round(p1.Y, 3)], [round(p2.X, 3), round(p2.Y, 3)]]
+                        item["length"] = round(float(le.Length), 3)
                 except Exception:
                     pass
             elif el_type == 4:  # LineString
                 try:
                     item["type_name"] = "LineString"
-                    lse = el.AsLineStringElement()
-                    pts = []
-                    try:
-                        cnt = getattr(lse, "VerticesCount", 0)
-                        for i in range(1, cnt + 1):
-                            v = lse.Vertex(i)
-                            pts.append([round(v.X, 3), round(v.Y, 3)])
-                    except Exception:
-                        pass
-                    if not pts:
-                        v_raw = lse.GetVertices()
-                        pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
-                    item["points"] = pts
-                except Exception:
-                    pass
-                try:
-                    item["length"] = round(lse.Length, 3)
+                    pts = _get_polygon_from_element(el)
+                    item["points"] = pts or []
+                    if hasattr(el, "Length"):
+                        item["length"] = round(float(el.Length), 3)
                 except Exception:
                     pass
             elif el_type == 6:  # Shape
                 try:
                     item["type_name"] = "Shape"
-                    se = el.AsShapeElement()
-                    pts = []
-                    try:
-                        cnt = getattr(se, "VerticesCount", 0)
-                        for i in range(1, cnt + 1):
-                            v = se.Vertex(i)
-                            pts.append([round(v.X, 3), round(v.Y, 3)])
-                    except Exception:
-                        pass
-                    if not pts:
-                        v_raw = se.GetVertices()
-                        pts = [[round(p.X, 3), round(p.Y, 3)] for p in v_raw]
-                    item["points"] = pts
-                    item["area"] = round(se.Area, 3)
-                    item["length"] = round(se.Perimeter, 3)
+                    pts = _get_polygon_from_element(el)
+                    item["points"] = pts or []
+                    closed = getattr(el, "AsClosedElement", None)
+                    closed = closed() if callable(closed) else closed
+                    if closed and hasattr(closed, "Area"):
+                        item["area"] = round(float(closed.Area), 3)
+                        item["length"] = round(float(closed.Perimeter), 3)
                 except Exception:
                     pass
             elif el_type == 2:  # Cell
                 try:
                     item["type_name"] = "Cell"
-                    item["cell_name"] = el.AsCellElement().Name
+                    ce = getattr(el, "AsCellElement", None)
+                    ce = ce() if callable(ce) else ce
+                    if ce and hasattr(ce, "Name"):
+                        item["cell_name"] = ce.Name
                 except Exception:
                     pass
             elif el_type == 14:  # ComplexShape
@@ -337,32 +325,68 @@ def register_query_tools(mcp):
         el_type = int(el.Type)
         if el_type == 17:  # Text
             try:
-                te = el.AsTextElement()
-                details["type_name"] = "Text"
-                details["text"] = te.Text
-                details["text_height"] = te.TextStyle.Height
-                details["text_width"] = te.TextStyle.Width
-                details["origin"] = [round(te.Origin.X, 3), round(te.Origin.Y, 3)]
+                te = getattr(el, "AsTextElement", None)
+                te = te() if callable(te) else te
+                if te:
+                    details["type_name"] = "Text"
+                    details["text"] = str(getattr(te, "Text", ""))
+                    if hasattr(te, "TextStyle"):
+                        details["text_height"] = te.TextStyle.Height
+                        details["text_width"] = te.TextStyle.Width
+                    details["origin"] = [round(te.Origin.X, 3), round(te.Origin.Y, 3)]
+            except Exception:
+                pass
+        elif el_type == 7:  # TextNode
+            try:
+                tne = getattr(el, "AsTextNodeElement", None)
+                tne = tne() if callable(tne) else tne
+                if tne:
+                    details["type_name"] = "TextNode"
+                    lines = []
+                    for i in range(1, tne.TextLinesCount + 1):
+                        lines.append(tne.TextLine(i))
+                    details["text"] = "\n".join(lines)
+                    details["origin"] = [round(tne.Origin.X, 3), round(tne.Origin.Y, 3)]
             except Exception:
                 pass
         elif el_type == 3:  # Line
             try:
-                le = el.AsLineElement()
-                details["type_name"] = "Line"
-                details["length"] = round(le.Length, 4)
-                details["start_point"] = [round(le.StartPoint.X, 3), round(le.StartPoint.Y, 3)]
-                details["end_point"] = [round(le.EndPoint.X, 3), round(le.EndPoint.Y, 3)]
+                le = getattr(el, "AsLineElement", None)
+                le = le() if callable(le) else le
+                if le:
+                    details["type_name"] = "Line"
+                    details["length"] = round(float(le.Length), 4)
+                    details["start_point"] = [round(le.StartPoint.X, 3), round(le.StartPoint.Y, 3)]
+                    details["end_point"] = [round(le.EndPoint.X, 3), round(le.EndPoint.Y, 3)]
+                    details["vertices"] = [details["start_point"], details["end_point"]]
+            except Exception:
+                pass
+        elif el_type == 4:  # LineString
+            try:
+                details["type_name"] = "LineString"
+                pts = _get_polygon_from_element(el)
+                if pts:
+                    details["vertices"] = pts
+                    details["vertices_count"] = len(pts)
+                if hasattr(el, "Length"):
+                    details["length"] = round(float(el.Length), 4)
             except Exception:
                 pass
         elif el_type in (6, 14) or getattr(el, "IsClosedElement", False):  # Shape / ComplexShape
             try:
                 details["type_name"] = "Shape" if el_type == 6 else ("ComplexShape" if el_type == 14 else "ClosedElement")
-                closed = el.AsClosedElement()
-                details["area"] = round(closed.Area, 4)
-                details["perimeter"] = round(closed.Perimeter, 4)
-                details["fill_mode"] = getattr(closed, "FillMode", 0)
-                details["fill_color"] = getattr(closed, "FillColor", None)
-                details["is_filled"] = details["fill_mode"] > 0
+                pts = _get_polygon_from_element(el)
+                if pts:
+                    details["vertices"] = pts
+                    details["vertices_count"] = len(pts)
+                closed = getattr(el, "AsClosedElement", None)
+                closed = closed() if callable(closed) else closed
+                if closed:
+                    details["area"] = round(float(closed.Area), 4) if hasattr(closed, "Area") else round(float(el.Area()), 4)
+                    details["perimeter"] = round(float(closed.Perimeter), 4) if hasattr(closed, "Perimeter") else round(float(el.Perimeter()), 4)
+                    details["fill_mode"] = getattr(closed, "FillMode", 0)
+                    details["fill_color"] = getattr(closed, "FillColor", None)
+                    details["is_filled"] = details["fill_mode"] > 0
             except Exception:
                 pass
 

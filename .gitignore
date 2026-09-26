@@ -1,8 +1,14 @@
 dist/
 build/
 build_clean/
+build_configurator_temp/
 __pycache__/
 *.pyc
 .venv/
 *.del
 *.old.exe
+*.obj
+*.exp
+*.lib
+*.spec
+

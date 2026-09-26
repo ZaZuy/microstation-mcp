@@ -17,41 +17,59 @@ def _get_polygon_from_element(el) -> Optional[List[List[float]]]:
     pts = []
 
     # Check IsVertexList (Shape, LineString, PointString)
-    if getattr(el, "IsVertexList", False):
+    is_vl = False
+    try:
+        is_vl = bool(getattr(el, "IsVertexList", False))
+    except Exception:
+        pass
+
+    if is_vl:
         try:
-            vl = el.AsVertexList
-            v_raw = vl.GetVertices()
-            pts = [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
-            if pts:
-                return pts
+            vl = getattr(el, "AsVertexList", None)
+            if vl:
+                vl = vl() if callable(vl) else vl
+                v_raw = vl.GetVertices()
+                pts = [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
+                if pts:
+                    return pts
         except Exception:
             pass
 
     # Shape (6) fallback
     if el_type == 6:
         try:
-            se = el.AsShapeElement()
-            try:
-                vc = getattr(se, "VerticesCount", 0)
-                for i in range(1, vc + 1):
-                    pt = se.Vertex(i)
-                    pts.append([round(pt.X, 4), round(pt.Y, 4)])
-            except Exception:
-                pass
-            if not pts:
-                v_raw = se.GetVertices()
-                pts = [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
-            if pts:
-                return pts
+            se = getattr(el, "AsShapeElement", None)
+            se = se() if callable(se) else se
+            if se:
+                try:
+                    vc = getattr(se, "VerticesCount", 0)
+                    for i in range(1, vc + 1):
+                        pt = se.Vertex(i)
+                        pts.append([round(pt.X, 4), round(pt.Y, 4)])
+                except Exception:
+                    pass
+                if not pts:
+                    v_raw = se.GetVertices()
+                    pts = [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
+                if pts:
+                    return pts
         except Exception:
             pass
 
     # LineString (4) fallback
     elif el_type == 4:
         try:
-            le = el.AsLineElement()
-            v_raw = le.GetVertices()
-            return [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
+            if hasattr(el, "GetVertices"):
+                v_raw = el.GetVertices()
+                return [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
+        except Exception:
+            pass
+        try:
+            vl = getattr(el, "AsVertexList", None)
+            if vl:
+                vl = vl() if callable(vl) else vl
+                v_raw = vl.GetVertices()
+                return [[round(p.X, 4), round(p.Y, 4)] for p in v_raw]
         except Exception:
             pass
 
@@ -193,15 +211,21 @@ def register_dimension_tools(mcp):
 
             # Thử lấy trực tiếp từ thuộc tính ClosedElement nếu có
             try:
-                if getattr(el, "IsClosedElement", lambda: False)():
+                is_closed = False
+                try:
+                    is_closed = bool(getattr(el, "IsClosedElement", lambda: False)())
+                except Exception:
+                    pass
+                if is_closed:
+                    pts = _get_polygon_from_element(el)
                     area = float(el.Area())
                     perimeter = float(el.Perimeter())
-                    pts = _get_polygon_from_element(el)
                     return {
                         "element_id": str(element_id),
                         "type": getattr(el, "Type", None),
                         "level": el.Level.Name if el.Level else "",
                         "vertices_count": len(pts) if pts else 0,
+                        "vertices": pts or [],
                         "area_square_units": round(area, 4),
                         "area_hectares": round(area / 10000.0, 6),
                         "perimeter_units": round(perimeter, 4),
@@ -220,6 +244,7 @@ def register_dimension_tools(mcp):
 
         res = {
             "vertices_count": len(pts),
+            "vertices": pts,
             "area_square_units": round(area, 4),
             "area_hectares": round(area / 10000.0, 6),
             "perimeter_units": round(perimeter, 4),

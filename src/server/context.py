@@ -4,43 +4,40 @@ Quản lý trạng thái và cấu hình tổng quát của MicroStation MCP Ser
 """
 
 SERVER_NAME = "microstation-v8i"
-SERVER_VERSION = "1.4.0"
+SERVER_VERSION = "2.0.0"
 
 SERVER_INSTRUCTIONS = """
-MicroStation V8i MCP Server - Hệ thống điều khiển CAD chuyên nghiệp toàn diện cho AI (77 Tools).
+MicroStation V8i MCP Server — Hệ thống điều khiển CAD & Tự động hóa bản vẽ chuyên nghiệp cho AI.
+Hỗ trợ kiến trúc Dual-Mode: Named Pipe MDL Native (tốc độ cao ~0.1ms) và COM Fallback (tự động chuyển đổi).
 
-Bao gồm 12 nhóm công cụ:
-1. HÌNH HỌC (13 tools):
-   - draw_line, draw_linestring, draw_shape, draw_rectangle, draw_circle, draw_arc, draw_ellipse, draw_point, draw_bspline_curve, place_cell, create_region, flood_fill_region, copy_reference_parcel.
-2. ĐO ĐẠC & GHI KÍCH THƯỚC (8 tools):
-   - measure_distance, measure_area, compare_parcels, analyze_parcel_overlap, create_final_parcel, dimension_linear, dimension_aligned, dimension_radius.
-3. CHỈNH SỬA & BIẾN ĐỔI HÌNH HỌC (8 tools):
-   - move_element, copy_element, rotate_element, scale_element, mirror_element, fill_element, change_element_symbology, drop_element.
-4. VĂN BẢN & TÌM KIẾM (4 tools):
-   - place_text, place_text_node, find_text, replace_text.
-5. KHUNG NHÌN & TRỰC QUAN (7 tools):
-   - fit_view, zoom_window, pan_view, zoom_in, zoom_out, get_view_info, capture_view_image.
-6. QUẢN LÝ FILE, MODEL & REFERENCE (9 tools):
-   - open_design_file, save_design_file, create_new_dgn, get_models, activate_model, create_model, get_references, attach_reference, detach_reference.
-7. XỬ LÝ HÀNG LOẠT (3 tools):
-   - batch_draw_points, batch_draw_lines, batch_place_texts.
-8. CẤU HÌNH BẢN VẼ (6 tools):
-   - set_active_level, set_active_color, set_active_weight, set_active_style, create_level, set_level_display.
-9. TRUY VẤN & BÓC TÁCH (6 tools):
-   - get_drawing_info, get_levels, get_active_settings, scan_elements, get_element_details, delete_element_by_id.
-10. LỆNH CAD TRỰC TIẾP (2 tools):
-   - send_keyin, run_keyin_script.
-11. SỐ HÓA BẢN ĐỒ ĐỊA CHÍNH (5 tools):
-   - convert_pdf_to_map_image, georeference_map_sheet, extract_map_vectors, ocr_map_parcels, auto_digitize_cadastral_map.
-12. QUẢN LÝ ẢNH QUÉT RASTER (4 tools):
-   - attach_raster_image, detach_raster_image, fit_raster, set_raster_display.
+═══════════════════════════════════════════════════════════════════════════════
+  QUY TẮC BẮT BUỘC KHI LÀM VIỆC VỚI MICROSTATION (GOLDEN RULES FOR CAD AI)
+═══════════════════════════════════════════════════════════════════════════════
 
-RESOURCES:
-- ms://drawing/info: Trạng thái và metadata bản vẽ DGN đang mở.
-- ms://drawing/levels: Toàn bộ danh sách level/layer.
-- ms://drawing/settings: Thuộc tính nét vẽ active hiện tại.
+1. CHIẾN LƯỢC VẼ TỐC ĐỘ CAO (HIỆU QUẢ GẤP 50 LẦN):
+   - TUYỆT ĐỐI KHÔNG gọi lắt nhắt từng tool riêng lẻ (draw_line, draw_circle,...) khi vẽ từ 2 đối tượng trở lên.
+   - BẮT BUỘC sử dụng công cụ tổng lực:
+     • `cad_draw_workflow`: Công cụ trọn gói tốt nhất (Setup môi trường -> Vẽ hàng loạt -> Tự động Fit View).
+     • `batch_draw_elements`: Vẽ hàng chục/hàng trăm đối tượng trong 1 round-trip duy nhất (Tự động chuyển đổi Native Pipe hoặc COM Fallback).
 
-PROMPTS:
-- cad_drawing_workflow: Quy trình thiết kế bản vẽ kỹ thuật chuẩn mực.
-- element_inspection: Quy trình kiểm toán và phân tích chất lượng bản vẽ.
+2. BẢNG MÃ MÀU CHUẨN MICROSTATION (COLOR INDEX 0 - 255):
+   • 0 = Trắng / Đen (White/Black - tương phản với màu nền)
+   • 1 = Xanh dương (Blue)
+   • 2 = Xanh lá cây (Green)
+   • 3 = Đỏ (Red)
+   • 4 = Vàng (Yellow)
+   • 5 = Tím (Magenta)
+   • 6 = Cam (Orange)
+   • 7 = Xanh lơ (Cyan)
+
+3. QUY CHUẨN BẢN ĐỒ ĐỊA CHÍNH VIỆT NAM (THÔNG TƯ 25/2014/TT-BTNMT):
+   • Ranh giới thửa đất: Level `RanhDat` (hoặc Level 10), Color `3` (Đỏ), Weight `2`, Style `0` (Solid).
+   • Nhãn Số thửa đất: Level `SoThua` (hoặc Level 11), Color `0` (Trắng), Height `2.0 - 2.5m`.
+   • Nhãn Diện tích / Loại đất: Level `LoaiDat` (hoặc Level 12), Color `2` (Xanh lá), Height `1.5 - 2.0m`.
+   • Tim đường / Chỉ giới quy hoạch: Level `ChiGioi` (hoặc Level 20), Color `4` (Vàng), Style `3` (Gạch chấm).
+
+4. QUẢN LÝ TỌA ĐỘ VÀ KHUNG NHÌN:
+   • Luôn gọi `get_model_snapshot()` trước khi vẽ để nắm bắt tọa độ hiện tại của bản vẽ (tránh vẽ ở gốc 0,0 nếu bản vẽ đang ở tọa độ thực địa VN-2000).
+   • Sau khi vẽ xong, LUÔN gọi `fit_view()` (hoặc để `fit_view_after=True` trong `cad_draw_workflow`) để người dùng nhìn thấy sản phẩm ngay lập tức.
 """
+

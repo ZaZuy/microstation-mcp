@@ -21,6 +21,8 @@ def register_text_tools(mcp):
         level: Optional[str] = None,
         color: Optional[int] = None,
         weight: Optional[int] = None,
+        font_name: Optional[str] = None,
+        justification: Optional[int] = None,
     ) -> str:
         """
         Đặt một chuỗi văn bản (Text Element) tại tọa độ (x, y).
@@ -34,6 +36,8 @@ def register_text_tools(mcp):
         :param level: Tên Level đặt chữ
         :param color: Màu chữ (0-255)
         :param weight: Độ đậm nét chữ
+        :param font_name: Tên font chữ (vd: 'Arial', '.VnArial', 'VNI-Helve')
+        :param justification: Căn lề (vd: 7 là Center-Center, 0 là Left-Top)
         """
         app = bridge.get_app()
         origin = bridge.create_point(x, y, 0.0)
@@ -44,6 +48,12 @@ def register_text_tools(mcp):
         try:
             text_elem.TextStyle.Height = float(height)
             text_elem.TextStyle.Width = float(width if width is not None else height)
+            if font_name:
+                font_obj = app.ActiveDesignFile.Fonts.Find(font_name)
+                if font_obj:
+                    text_elem.TextStyle.Font = font_obj
+            if justification is not None:
+                text_elem.TextStyle.Justification = int(justification)
         except Exception:
             pass
 
@@ -61,6 +71,8 @@ def register_text_tools(mcp):
         rotation_deg: float = 0.0,
         level: Optional[str] = None,
         color: Optional[int] = None,
+        font_name: Optional[str] = None,
+        justification: Optional[int] = None,
     ) -> str:
         """
         Đặt một khối văn bản nhiều dòng (Text Node) tại tọa độ (x, y).
@@ -72,6 +84,8 @@ def register_text_tools(mcp):
         :param rotation_deg: Góc xoay chữ
         :param level: Tên Level
         :param color: Màu chữ
+        :param font_name: Tên font chữ (vd: 'Arial')
+        :param justification: Căn lề (vd: 7 là Center-Center)
         """
         if not lines:
             return "Lỗi: Danh sách dòng chữ trống!"
@@ -85,6 +99,12 @@ def register_text_tools(mcp):
         try:
             node_elem.TextStyle.Height = float(height)
             node_elem.TextStyle.Width = float(height)
+            if font_name:
+                font_obj = app.ActiveDesignFile.Fonts.Find(font_name)
+                if font_obj:
+                    node_elem.TextStyle.Font = font_obj
+            if justification is not None:
+                node_elem.TextStyle.Justification = int(justification)
         except Exception:
             pass
 
@@ -148,8 +168,11 @@ def register_text_tools(mcp):
 
                 if el_type == 17:  # Text
                     try:
-                        te = el.AsTextElement()
-                        text_val = te.Text
+                        te = getattr(el, "AsTextElement", None)
+                        te = te() if callable(te) else te
+                        if not te:
+                            continue
+                        text_val = str(getattr(te, "Text", ""))
                         pt = te.Origin
                         origin = [round(pt.X, 3), round(pt.Y, 3)]
                         type_name = "Text"
@@ -157,7 +180,10 @@ def register_text_tools(mcp):
                         continue
                 elif el_type == 7:  # TextNode
                     try:
-                        tne = el.AsTextNodeElement()
+                        tne = getattr(el, "AsTextNodeElement", None)
+                        tne = tne() if callable(tne) else tne
+                        if not tne:
+                            continue
                         lines = [tne.TextLine(i) for i in range(1, tne.TextLinesCount + 1)]
                         text_val = "\n".join(lines)
                         pt = tne.Origin
@@ -167,18 +193,26 @@ def register_text_tools(mcp):
                         continue
                 elif el_type in (2, 34):  # Cell hoặc SharedCell (nhãn số thửa, diện tích địa chính)
                     try:
-                        ce = el.AsCellElement()
+                        ce = getattr(el, "AsCellElement", None)
+                        ce = ce() if callable(ce) else ce
+                        if not ce:
+                            continue
                         sub_ee = ce.GetSubElements()
                         cell_texts = []
                         while sub_ee.MoveNext():
                             sub_el = sub_ee.Current
                             stype = int(sub_el.Type)
                             if stype == 17:
-                                cell_texts.append(sub_el.AsTextElement().Text)
+                                ste = getattr(sub_el, "AsTextElement", None)
+                                ste = ste() if callable(ste) else ste
+                                if ste:
+                                    cell_texts.append(str(getattr(ste, "Text", "")))
                             elif stype == 7:
-                                stne = sub_el.AsTextNodeElement()
-                                for li in range(1, stne.TextLinesCount + 1):
-                                    cell_texts.append(stne.TextLine(li))
+                                stne = getattr(sub_el, "AsTextNodeElement", None)
+                                stne = stne() if callable(stne) else stne
+                                if stne:
+                                    for li in range(1, stne.TextLinesCount + 1):
+                                        cell_texts.append(stne.TextLine(li))
                         if cell_texts:
                             text_val = " / ".join(cell_texts)
                             pt = ce.Origin
