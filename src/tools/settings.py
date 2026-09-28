@@ -81,18 +81,9 @@ def register_settings_tools(mcp):
 
         :param level_name: Tên level mới cần tạo
         """
-        dgn = bridge.get_active_file()
+        app = bridge.get_app()
         try:
-            existing = dgn.Levels(level_name)
-        except Exception:
-            existing = None
-
-        if existing:
-            return f"Level '{level_name}' đã tồn tại sẵn trong bản vẽ."
-
-        try:
-            dgn.AddNewLevel(level_name)
-            dgn.RewriteLevels()
+            app.CadInputQueue.SendKeyin(f'level create "{level_name}"')
             return f"Đã tạo thành công Level mới: '{level_name}'"
         except Exception as ex:
             return f"Lỗi khi tạo Level mới '{level_name}': {ex}"
