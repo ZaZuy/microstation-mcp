@@ -145,7 +145,7 @@ def register_fence_tools(mcp):
         """
         app = bridge.get_app()
         try:
-            app.ActiveModelReference.EmptySelectionSet()
+            app.CadInputQueue.SendKeyin("choose none")
             app.CadInputQueue.SendReset()
             return "Đã bỏ chọn toàn bộ đối tượng."
         except Exception as ex:
