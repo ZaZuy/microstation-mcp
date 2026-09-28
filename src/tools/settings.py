@@ -20,13 +20,17 @@ def register_settings_tools(mcp):
         app = bridge.get_app()
         dgn = bridge.get_active_file()
 
-        lvl = dgn.Levels.Find(level_name)
-        if not lvl:
-            lvl = dgn.AddNewLevel(level_name)
-            dgn.RewriteLevels()
+        try:
+            try:
+                dgn.Levels(level_name)
+            except Exception:
+                dgn.AddNewLevel(level_name)
+                dgn.RewriteLevels()
 
-        app.ActiveSettings.Level = lvl
-        return f"Đã chuyển Active Level sang: '{level_name}'"
+            app.CadInputQueue.SendKeyin(f'lv="{level_name}"')
+            return f"Đã chuyển Active Level sang: '{level_name}'"
+        except Exception as ex:
+            return f"Lỗi khi đổi Active Level: {ex}"
 
     @mcp.tool
     def set_active_color(color_index: int) -> str:
@@ -64,10 +68,8 @@ def register_settings_tools(mcp):
         :param style_index: Kiểu nét từ 0 đến 7 (0=Solid, 1=Dotted, 2=Medium Dash, 3=Long Dash, 4=Dot-Dash...)
         """
         app = bridge.get_app()
-        dgn = bridge.get_active_file()
         try:
-            style_obj = dgn.LineStyles.Item(int(style_index))
-            app.ActiveSettings.LineStyle = style_obj
+            app.CadInputQueue.SendKeyin(f"lc={int(style_index)}")
             return f"Đã đổi Active LineStyle sang kiểu số: {style_index}"
         except Exception as ex:
             return f"Không thể đổi LineStyle: {ex}"
@@ -80,13 +82,20 @@ def register_settings_tools(mcp):
         :param level_name: Tên level mới cần tạo
         """
         dgn = bridge.get_active_file()
-        existing = dgn.Levels.Find(level_name)
+        try:
+            existing = dgn.Levels(level_name)
+        except Exception:
+            existing = None
+
         if existing:
             return f"Level '{level_name}' đã tồn tại sẵn trong bản vẽ."
 
-        dgn.AddNewLevel(level_name)
-        dgn.RewriteLevels()
-        return f"Đã tạo thành công Level mới: '{level_name}'"
+        try:
+            dgn.AddNewLevel(level_name)
+            dgn.RewriteLevels()
+            return f"Đã tạo thành công Level mới: '{level_name}'"
+        except Exception as ex:
+            return f"Lỗi khi tạo Level mới '{level_name}': {ex}"
 
     @mcp.tool
     def set_level_display(
@@ -103,7 +112,11 @@ def register_settings_tools(mcp):
         """
         app = bridge.get_app()
         dgn = bridge.get_active_file()
-        lvl = dgn.Levels.Find(level_name)
+        try:
+            lvl = dgn.Levels(level_name)
+        except Exception:
+            lvl = None
+
         if not lvl:
             return f"Lỗi: Không tìm thấy Level '{level_name}' trong bản vẽ!"
 
@@ -153,8 +166,8 @@ def register_settings_tools(mcp):
         lvl_name = ""
         try:
             if el.Level:
-                app.ActiveSettings.Level = el.Level
                 lvl_name = el.Level.Name
+                app.CadInputQueue.SendKeyin(f'lv="{lvl_name}"')
         except Exception:
             pass
 
@@ -162,7 +175,10 @@ def register_settings_tools(mcp):
             app.ActiveSettings.Color = el.Color
             app.ActiveSettings.LineWeight = el.LineWeight
             if hasattr(el, "LineStyle") and el.LineStyle:
-                app.ActiveSettings.LineStyle = el.LineStyle
+                try:
+                    app.CadInputQueue.SendKeyin(f"lc={el.LineStyle.Name}")
+                except Exception:
+                    pass
         except Exception:
             pass
 
