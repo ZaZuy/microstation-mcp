@@ -196,12 +196,18 @@ def register_query_tools(mcp):
             if el_type == 17:  # Text
                 try:
                     item["type_name"] = "Text"
-                    te = getattr(el, "AsTextElement", None)
-                    te = te() if callable(te) else te
-                    if te:
-                        item["text"] = str(getattr(te, "Text", ""))
-                        pt = te.Origin
-                        item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
+                    txt = getattr(el, "Text", None)
+                    pt = getattr(el, "Origin", None)
+                    if txt is None or pt is None:
+                        te = getattr(el, "AsTextElement", None)
+                        te = te() if callable(te) else te
+                        if te:
+                            txt = txt if txt is not None else getattr(te, "Text", "")
+                            pt = pt if pt is not None else getattr(te, "Origin", None)
+                    if txt is not None:
+                        item["text"] = str(txt)
+                    if pt is not None:
+                        item["origin"] = [round(float(pt.X), 3), round(float(pt.Y), 3)]
                 except Exception:
                     pass
             elif el_type == 7:  # TextNode
@@ -222,13 +228,20 @@ def register_query_tools(mcp):
             elif el_type == 3:  # Line
                 try:
                     item["type_name"] = "Line"
-                    le = getattr(el, "AsLineElement", None)
-                    le = le() if callable(le) else le
-                    if le:
-                        p1 = le.StartPoint
-                        p2 = le.EndPoint
-                        item["points"] = [[round(p1.X, 3), round(p1.Y, 3)], [round(p2.X, 3), round(p2.Y, 3)]]
-                        item["length"] = round(float(le.Length), 3)
+                    p1 = getattr(el, "StartPoint", None)
+                    p2 = getattr(el, "EndPoint", None)
+                    length = getattr(el, "Length", None)
+                    if p1 is None or p2 is None:
+                        le = getattr(el, "AsLineElement", None)
+                        le = le() if callable(le) else le
+                        if le:
+                            p1 = getattr(le, "StartPoint", None)
+                            p2 = getattr(le, "EndPoint", None)
+                            length = getattr(le, "Length", None)
+                    if p1 is not None and p2 is not None:
+                        item["points"] = [[round(float(p1.X), 3), round(float(p1.Y), 3)], [round(float(p2.X), 3), round(float(p2.Y), 3)]]
+                    if length is not None:
+                        item["length"] = round(float(length), 3)
                 except Exception:
                     pass
             elif el_type == 4:  # LineString
@@ -325,15 +338,26 @@ def register_query_tools(mcp):
         el_type = int(el.Type)
         if el_type == 17:  # Text
             try:
-                te = getattr(el, "AsTextElement", None)
-                te = te() if callable(te) else te
-                if te:
+                txt = getattr(el, "Text", None)
+                pt = getattr(el, "Origin", None)
+                te = None
+                if txt is None or pt is None:
+                    te = getattr(el, "AsTextElement", None)
+                    te = te() if callable(te) else te
+                    if te:
+                        txt = txt if txt is not None else getattr(te, "Text", "")
+                        pt = pt if pt is not None else getattr(te, "Origin", None)
+                if txt is not None:
                     details["type_name"] = "Text"
-                    details["text"] = str(getattr(te, "Text", ""))
-                    if hasattr(te, "TextStyle"):
-                        details["text_height"] = te.TextStyle.Height
-                        details["text_width"] = te.TextStyle.Width
-                    details["origin"] = [round(te.Origin.X, 3), round(te.Origin.Y, 3)]
+                    details["text"] = str(txt)
+                if hasattr(el, "TextStyle"):
+                    details["text_height"] = el.TextStyle.Height
+                    details["text_width"] = el.TextStyle.Width
+                elif te and hasattr(te, "TextStyle"):
+                    details["text_height"] = te.TextStyle.Height
+                    details["text_width"] = te.TextStyle.Width
+                if pt is not None:
+                    details["origin"] = [round(float(pt.X), 3), round(float(pt.Y), 3)]
             except Exception:
                 pass
         elif el_type == 7:  # TextNode
@@ -346,18 +370,26 @@ def register_query_tools(mcp):
                     for i in range(1, tne.TextLinesCount + 1):
                         lines.append(tne.TextLine(i))
                     details["text"] = "\n".join(lines)
-                    details["origin"] = [round(tne.Origin.X, 3), round(tne.Origin.Y, 3)]
+                    details["origin"] = [round(float(tne.Origin.X), 3), round(float(tne.Origin.Y), 3)]
             except Exception:
                 pass
         elif el_type == 3:  # Line
             try:
-                le = getattr(el, "AsLineElement", None)
-                le = le() if callable(le) else le
-                if le:
+                p1 = getattr(el, "StartPoint", None)
+                p2 = getattr(el, "EndPoint", None)
+                length = getattr(el, "Length", None)
+                if p1 is None or p2 is None:
+                    le = getattr(el, "AsLineElement", None)
+                    le = le() if callable(le) else le
+                    if le:
+                        p1 = getattr(le, "StartPoint", None)
+                        p2 = getattr(le, "EndPoint", None)
+                        length = getattr(le, "Length", None)
+                if p1 is not None and p2 is not None:
                     details["type_name"] = "Line"
-                    details["length"] = round(float(le.Length), 4)
-                    details["start_point"] = [round(le.StartPoint.X, 3), round(le.StartPoint.Y, 3)]
-                    details["end_point"] = [round(le.EndPoint.X, 3), round(le.EndPoint.Y, 3)]
+                    details["length"] = round(float(length), 4) if length is not None else 0.0
+                    details["start_point"] = [round(float(p1.X), 3), round(float(p1.Y), 3)]
+                    details["end_point"] = [round(float(p2.X), 3), round(float(p2.Y), 3)]
                     details["vertices"] = [details["start_point"], details["end_point"]]
             except Exception:
                 pass

@@ -95,12 +95,20 @@ def _get_polygon_from_element(el) -> Optional[List[List[float]]]:
     # Line (3)
     elif el_type == 3:
         try:
+            sp = getattr(el, "StartPoint", None)
+            ep = getattr(el, "EndPoint", None)
+            if sp is not None and ep is not None:
+                return [
+                    [round(float(sp.X), 4), round(float(sp.Y), 4)],
+                    [round(float(ep.X), 4), round(float(ep.Y), 4)],
+                ]
             le = getattr(el, "AsLineElement", None)
             le = le() if callable(le) else le
-            return [
-                [round(le.StartPoint.X, 4), round(le.StartPoint.Y, 4)],
-                [round(le.EndPoint.X, 4), round(le.EndPoint.Y, 4)],
-            ]
+            if le:
+                return [
+                    [round(float(le.StartPoint.X), 4), round(float(le.StartPoint.Y), 4)],
+                    [round(float(le.EndPoint.X), 4), round(float(le.EndPoint.Y), 4)],
+                ]
         except Exception:
             pass
 

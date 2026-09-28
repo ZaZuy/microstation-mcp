@@ -168,13 +168,19 @@ def register_text_tools(mcp):
 
                 if el_type == 17:  # Text
                     try:
-                        te = getattr(el, "AsTextElement", None)
-                        te = te() if callable(te) else te
-                        if not te:
+                        txt = getattr(el, "Text", None)
+                        pt = getattr(el, "Origin", None)
+                        if txt is None or pt is None:
+                            te = getattr(el, "AsTextElement", None)
+                            te = te() if callable(te) else te
+                            if te:
+                                txt = txt if txt is not None else getattr(te, "Text", "")
+                                pt = pt if pt is not None else getattr(te, "Origin", None)
+                        if txt is None:
                             continue
-                        text_val = str(getattr(te, "Text", ""))
-                        pt = te.Origin
-                        origin = [round(pt.X, 3), round(pt.Y, 3)]
+                        text_val = str(txt)
+                        if pt is not None:
+                            origin = [round(float(pt.X), 3), round(float(pt.Y), 3)]
                         type_name = "Text"
                     except Exception:
                         continue

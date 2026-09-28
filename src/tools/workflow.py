@@ -656,6 +656,67 @@ def register_workflow_tools(mcp):
             "closed_points": closed_points
         }
 
+def _assemble_lines_into_polygons(line_segments: List[List[List[float]]], tol: float = 0.05) -> List[List[List[float]]]:
+    """
+    Nối các đoạn thẳng Line rời rạc thành các vòng đa giác khép kín (closed loops).
+    line_segments: danh sách các đoạn [[[x1, y1], [x2, y2]], ...]
+    """
+    if not line_segments or len(line_segments) < 3:
+        return []
+
+    remaining = [list(seg) for seg in line_segments]
+    polygons = []
+
+    while remaining:
+        seg = remaining.pop(0)
+        curr_poly = [list(seg[0]), list(seg[1])]
+
+        extended = True
+        while extended and remaining:
+            extended = False
+            last_pt = curr_poly[-1]
+            first_pt = curr_poly[0]
+
+            # Kiểm tra xem vòng đã tự khép kín chưa
+            if len(curr_poly) >= 4 and math.hypot(last_pt[0] - first_pt[0], last_pt[1] - first_pt[1]) <= tol:
+                break
+
+            best_idx = -1
+            best_reverse = False
+            best_dist = tol + 1e-4
+
+            for i, other in enumerate(remaining):
+                d_start = math.hypot(other[0][0] - last_pt[0], other[0][1] - last_pt[1])
+                d_end = math.hypot(other[1][0] - last_pt[0], other[1][1] - last_pt[1])
+                if d_start <= tol and d_start < best_dist:
+                    best_dist = d_start
+                    best_idx = i
+                    best_reverse = False
+                elif d_end <= tol and d_end < best_dist:
+                    best_dist = d_end
+                    best_idx = i
+                    best_reverse = True
+
+            if best_idx >= 0:
+                nxt = remaining.pop(best_idx)
+                if best_reverse:
+                    curr_poly.append(list(nxt[0]))
+                else:
+                    curr_poly.append(list(nxt[1]))
+                extended = True
+
+        # Đóng vòng
+        if len(curr_poly) >= 4:
+            first_pt = curr_poly[0]
+            last_pt = curr_poly[-1]
+            if math.hypot(last_pt[0] - first_pt[0], last_pt[1] - first_pt[1]) <= tol:
+                curr_poly = curr_poly[:-1]  # Chuẩn hóa bỏ điểm đóng cuối
+            if len(curr_poly) >= 3:
+                polygons.append(curr_poly)
+
+    return polygons
+
+
     @mcp.tool
     def get_cadastral_parcel_table(
         element_id: Optional[str] = None,
@@ -666,11 +727,12 @@ def register_workflow_tools(mcp):
         chuẩn Thông tư 26/2024/TT-BTNMT và Thông tư 23/2025/TT-BNNMT.
 
         - Tự động nhận diện ranh thửa đất (nếu không truyền element_id): ưu tiên Level 10, Level 37, hoặc hình khép kín trong bản vẽ.
+        - Tự động kết nối các đoạn thẳng Line rời rạc (Type 3) trên Level 10 thành đa giác ranh thửa khép kín.
         - Trích xuất toàn bộ đỉnh ranh giới chính xác đến milimét.
         - Tự động lọc điểm trùng lặp, tính chiều dài từng cạnh S_i (từ đỉnh i đến i+1).
         - Tính chính xác diện tích (m2, ha) và chu vi (m).
         - Tự động tìm kiếm và liên kết nhãn số thửa, diện tích pháp lý, loại đất (ODT, ONT...) từ Level 13, Level 4, Level 2, Level 38.
-        - Tự động gán số hiệu đỉnh ranh (1, 2, 3...) theo nhãn mốc ranh giới trên bản vẽ.
+        - Tự động gán số hiệu đỉnh ranh (1, 2, 3...) theo nhãn mốc ranh giới trên bản vẽ và sắp xếp theo đúng chiều mốc 1 -> 2 -> ... -> n.
 
         :param element_id: ID phần tử ranh thửa đất (tùy chọn)
         :param level: Lọc theo Level chứa ranh thửa (tùy chọn, vd 'Level 10', 'Level 37')
@@ -680,66 +742,129 @@ def register_workflow_tools(mcp):
         cache = model.GraphicalElementCache
 
         target_el = None
+        target_pts = None
+        target_level_name = ""
+
         # 1. Tìm phần tử theo element_id nếu có
         if element_id:
             target_el = bridge.find_element_by_id(element_id)
             if not target_el:
                 return {"success": False, "error": f"Không tìm thấy phần tử có ID '{element_id}' trong bản vẽ!"}
-        else:
-            # 2. Tự động tìm kiếm đối tượng ranh thửa tốt nhất
-            preferred_levels = []
-            if level:
-                preferred_levels.append(str(level).strip().lower())
-            preferred_levels.extend(["level 10", "level 37", "level 61", "10", "37", "61"])
+            target_pts = _get_polygon_from_element(target_el)
+            target_level_name = target_el.Level.Name if target_el.Level else ""
 
-            candidate_elements = []
-            for idx in range(1, cache.Count + 1):
-                try:
-                    el = cache.GetElement(idx)
-                    if not el:
-                        continue
-                    lvl_name = (el.Level.Name if el.Level else "").strip().lower()
-                    el_type = int(el.Type)
+        # 2. Duyệt qua cache trong 1 LƯỢT DUY NHẤT (Single Pass)
+        preferred_levels = []
+        if level:
+            preferred_levels.append(str(level).strip().lower())
+        preferred_levels.extend(["level 10", "10", "level 37", "37", "level 61", "61"])
+
+        candidate_elements = []  # [(score, area, el, pts, lvl_name)]
+        lines_by_level = {}      # lvl_name -> (orig_name, [ [[x1,y1], [x2,y2]], ... ])
+        collected_texts = []     # [ (txt, origin, lvl_name) ]
+
+        for idx in range(1, cache.Count + 1):
+            try:
+                el = cache.GetElement(idx)
+                if not el:
+                    continue
+
+                lvl_name = (el.Level.Name if el.Level else "").strip()
+                lvl_lower = lvl_name.lower()
+                el_type = int(el.Type)
+
+                # Thu thập Text / TextNode
+                if el_type == 17:  # Text
+                    txt_raw = getattr(el, "Text", None)
+                    pt_raw = getattr(el, "Origin", None)
+                    if txt_raw is None or pt_raw is None:
+                        te = getattr(el, "AsTextElement", None)
+                        te = te() if callable(te) else te
+                        if te:
+                            txt_raw = txt_raw if txt_raw is not None else getattr(te, "Text", "")
+                            pt_raw = pt_raw if pt_raw is not None else getattr(te, "Origin", None)
+                    if txt_raw is not None and pt_raw is not None:
+                        txt_val = str(txt_raw).strip()
+                        if txt_val:
+                            collected_texts.append((txt_val, (float(pt_raw.X), float(pt_raw.Y)), lvl_lower))
+                elif el_type == 7:  # TextNode
+                    tne = getattr(el, "AsTextNodeElement", None)
+                    tne = tne() if callable(tne) else tne
+                    if tne:
+                        lines = [tne.TextLine(i).strip() for i in range(1, tne.TextLinesCount + 1)]
+                        txt_val = "\n".join(lines).strip()
+                        if txt_val:
+                            pt = tne.Origin
+                            collected_texts.append((txt_val, (float(pt.X), float(pt.Y)), lvl_lower))
+
+                # Thu thập ranh thửa nếu chưa có element_id
+                if not target_pts:
                     if el_type in (4, 6, 14) or getattr(el, "IsClosedElement", False):
                         pts = _get_polygon_from_element(el)
                         if pts and len(pts) >= 3:
-                            area, perim, _, _ = _calc_centroid_and_area(pts)
-                            if area > 1.0:
+                            area_cand, _, _, _ = _calc_centroid_and_area(pts)
+                            if area_cand > 1.0:
                                 score = 0
                                 for p_idx, pl in enumerate(preferred_levels):
-                                    if lvl_name == pl:
+                                    if lvl_lower == pl:
                                         score = 100 - p_idx
                                         break
-                                candidate_elements.append((score, area, el))
-                except Exception:
-                    continue
+                                candidate_elements.append((score, area_cand, el, pts, lvl_name))
+                    elif el_type == 3:  # Line rời rạc
+                        p1 = getattr(el, "StartPoint", None)
+                        p2 = getattr(el, "EndPoint", None)
+                        if p1 is None or p2 is None:
+                            le = getattr(el, "AsLineElement", None)
+                            le = le() if callable(le) else le
+                            if le:
+                                p1 = getattr(le, "StartPoint", None)
+                                p2 = getattr(le, "EndPoint", None)
+                        if p1 is not None and p2 is not None:
+                            seg = [[round(float(p1.X), 4), round(float(p1.Y), 4)],
+                                   [round(float(p2.X), 4), round(float(p2.Y), 4)]]
+                            if lvl_lower not in lines_by_level:
+                                lines_by_level[lvl_lower] = (lvl_name, [])
+                            lines_by_level[lvl_lower][1].append(seg)
+            except Exception:
+                continue
+
+        # Nếu chưa có target_pts từ element_id, kiểm tra các đa giác tạo từ Line rời rạc
+        if not target_pts:
+            for lvl_lower, (lvl_orig, segs) in lines_by_level.items():
+                if len(segs) >= 3:
+                    assembled = _assemble_lines_into_polygons(segs, tol=0.02)
+                    for poly in assembled:
+                        area_cand, _, _, _ = _calc_centroid_and_area(poly)
+                        if area_cand > 1.0:
+                            score = 10
+                            for p_idx, pl in enumerate(preferred_levels):
+                                if lvl_lower == pl:
+                                    score = 150 - p_idx  # Ưu tiên cao nhất khi đã gom từ ranh hiện trạng Level 10
+                                    break
+                            candidate_elements.append((score, area_cand, None, poly, lvl_orig))
 
             if candidate_elements:
                 candidate_elements.sort(key=lambda item: (item[0], item[1]), reverse=True)
-                target_el = candidate_elements[0][2]
+                best_cand = candidate_elements[0]
+                target_el = best_cand[2]
+                target_pts = best_cand[3]
+                target_level_name = best_cand[4]
 
-        if not target_el:
+        if not target_pts or len(target_pts) < 3:
             return {
                 "success": False,
                 "error": "Không tìm thấy phần tử ranh thửa đất nào phù hợp trong bản vẽ!"
             }
 
-        # 3. Trích xuất đỉnh ranh giới
-        raw_pts = _get_polygon_from_element(target_el)
-        if not raw_pts or len(raw_pts) < 3:
-            return {
-                "success": False,
-                "error": f"Đối tượng ID {getattr(target_el, 'ID64', '')} không có đủ đỉnh tọa độ!"
-            }
-
-        # Làm sạch: loại bỏ đỉnh trùng lặp liên tiếp
+        # 3. Làm sạch đỉnh tọa độ
         clean_pts = []
-        for p in raw_pts:
+        for p in target_pts:
+            pt_clean = [round(float(p[0]), 3), round(float(p[1]), 3)]
             if not clean_pts:
-                clean_pts.append([round(float(p[0]), 3), round(float(p[1]), 3)])
+                clean_pts.append(pt_clean)
             else:
-                if math.hypot(p[0] - clean_pts[-1][0], p[1] - clean_pts[-1][1]) > 0.005:
-                    clean_pts.append([round(float(p[0]), 3), round(float(p[1]), 3)])
+                if math.hypot(pt_clean[0] - clean_pts[-1][0], pt_clean[1] - clean_pts[-1][1]) > 0.005:
+                    clean_pts.append(pt_clean)
 
         # Loại bỏ điểm đóng cuối cùng nếu trùng với điểm đầu
         if len(clean_pts) > 2 and math.hypot(clean_pts[0][0] - clean_pts[-1][0], clean_pts[0][1] - clean_pts[-1][1]) < 0.005:
@@ -752,7 +877,7 @@ def register_workflow_tools(mcp):
         # 4. Tính toán Diện tích và Chu vi
         area, perimeter, cx, cy = _calc_centroid_and_area(clean_pts)
 
-        # 5. Quét tìm nhãn thửa và nhãn mốc ranh xung quanh
+        # 5. Phân tích nhãn từ collected_texts
         so_thua = ""
         loai_dat = ""
         dien_tich_nhan = ""
@@ -763,67 +888,64 @@ def register_workflow_tools(mcp):
             to_ban_do = match_bd.group(1)
 
         point_labels = {}
-        for idx in range(1, cache.Count + 1):
-            try:
-                el = cache.GetElement(idx)
-                if not el:
-                    continue
-                el_type = int(el.Type)
-                txt = ""
-                origin = None
+        for txt, origin, lvl_lower in collected_texts:
+            # Nhãn mốc đỉnh ranh (1, 2, 3...)
+            if txt.isdigit() and len(txt) <= 3:
+                val_num = int(txt)
+                if 1 <= val_num <= num_pts + 10:
+                    for p_idx, p in enumerate(clean_pts):
+                        dist = math.hypot(origin[0] - p[0], origin[1] - p[1])
+                        if dist < 3.0:
+                            if p_idx not in point_labels or dist < point_labels[p_idx][1]:
+                                point_labels[p_idx] = (txt, dist)
 
-                if el_type == 17:
-                    te = getattr(el, "AsTextElement", None)
-                    te = te() if callable(te) else te
-                    if te:
-                        txt = str(getattr(te, "Text", "")).strip()
-                        pt = te.Origin
-                        origin = (pt.X, pt.Y)
-                elif el_type == 7:
-                    tne = getattr(el, "AsTextNodeElement", None)
-                    tne = tne() if callable(tne) else tne
-                    if tne:
-                        lines = [tne.TextLine(i).strip() for i in range(1, tne.TextLinesCount + 1)]
-                        txt = "\n".join(lines)
-                        pt = tne.Origin
-                        origin = (pt.X, pt.Y)
+            # Nhãn loại đất
+            if txt.upper() in ("ODT", "ONT", "LUC", "CLN", "BHK", "RSX", "TMD", "SKC", "TSC", "DGT", "DNL"):
+                dist_c = math.hypot(origin[0] - cx, origin[1] - cy)
+                if dist_c < math.sqrt(area) + 15.0:
+                    loai_dat = txt.upper()
 
-                if not txt or not origin:
-                    continue
+            # Nhãn diện tích
+            if re.match(r'^\d+[\.,]\d+$', txt):
+                dist_c = math.hypot(origin[0] - cx, origin[1] - cy)
+                if dist_c < math.sqrt(area) + 15.0:
+                    dien_tich_nhan = txt.replace(',', '.')
 
-                lvl_name = (el.Level.Name if el.Level else "").lower()
+            # Nhãn số thửa
+            if txt.isdigit() and ("level 13" in lvl_lower or ("level 38" in lvl_lower and 1 <= int(txt) <= 9999)):
+                dist_c = math.hypot(origin[0] - cx, origin[1] - cy)
+                if dist_c < math.sqrt(area) + 10.0 and not so_thua:
+                    so_thua = txt
 
-                # Kiểm tra nhãn mốc đỉnh ranh giới (1, 2, 3...)
-                if txt.isdigit() and len(txt) <= 3:
-                    val_num = int(txt)
-                    if 1 <= val_num <= num_pts + 5:
-                        for p_idx, p in enumerate(clean_pts):
-                            dist = math.hypot(origin[0] - p[0], origin[1] - p[1])
-                            if dist < 3.0:
-                                if p_idx not in point_labels or dist < point_labels[p_idx][1]:
-                                    point_labels[p_idx] = (txt, dist)
+        # 6. Chuẩn hóa chiều và đỉnh bắt đầu theo Mốc 1
+        idx_1 = None
+        for p_idx, (lbl, _) in point_labels.items():
+            if lbl == "1":
+                idx_1 = p_idx
+                break
 
-                # Nhãn loại đất
-                if txt.upper() in ("ODT", "ONT", "LUC", "CLN", "BHK", "RSX", "TMD", "SKC", "TSC", "DGT", "DNL"):
-                    dist_c = math.hypot(origin[0] - cx, origin[1] - cy)
-                    if dist_c < math.sqrt(area) + 10.0:
-                        loai_dat = txt.upper()
+        if idx_1 is not None:
+            # Xoay danh sách đỉnh để bắt đầu từ Mốc 1
+            clean_pts = clean_pts[idx_1:] + clean_pts[:idx_1]
+            new_point_labels = {}
+            for old_idx, val in point_labels.items():
+                new_idx = (old_idx - idx_1) % num_pts
+                new_point_labels[new_idx] = val
+            point_labels = new_point_labels
 
-                # Nhãn diện tích (số có dấu chấm/phẩy thập phân)
-                if re.match(r'^\d+[\.,]\d+$', txt):
-                    dist_c = math.hypot(origin[0] - cx, origin[1] - cy)
-                    if dist_c < math.sqrt(area) + 10.0:
-                        dien_tich_nhan = txt.replace(',', '.')
+            # Nếu đỉnh cuối cùng có nhãn 2, đổi chiều danh sách đỉnh để thứ tự tăng dần 1 -> 2 -> ... -> n
+            if num_pts > 2:
+                last_lbl = point_labels.get(num_pts - 1, ("", 0))[0]
+                first_after_1_lbl = point_labels.get(1, ("", 0))[0]
+                if last_lbl == "2" or (last_lbl.isdigit() and first_after_1_lbl.isdigit() and int(last_lbl) < int(first_after_1_lbl)):
+                    clean_pts = [clean_pts[0]] + clean_pts[1:][::-1]
+                    rev_point_labels = {0: point_labels.get(0, ("1", 0))}
+                    for i in range(1, num_pts):
+                        if (num_pts - i) in point_labels:
+                            rev_point_labels[i] = point_labels[num_pts - i]
+                    point_labels = rev_point_labels
 
-                # Nhãn số thửa
-                if txt.isdigit() and ("level 13" in lvl_name or ("level 38" in lvl_name and 1 <= int(txt) <= 9999)):
-                    dist_c = math.hypot(origin[0] - cx, origin[1] - cy)
-                    if dist_c < math.sqrt(area) + 5.0 and not so_thua:
-                        so_thua = txt
-            except Exception:
-                continue
-
-        # 6. Xây dựng Bảng kê chuẩn Thông tư 26/2024
+        # 7. Xây dựng Bảng kê chuẩn Thông tư 26/2024
         table_rows = []
         for i in range(num_pts):
             p_curr = clean_pts[i]
@@ -860,14 +982,13 @@ def register_workflow_tools(mcp):
             "edge_length_m": 0.0,
         }
 
-        target_id_str = str(getattr(target_el, "ID64", getattr(target_el, "ID", "")))
-        lvl_str = target_el.Level.Name if target_el.Level else ""
+        target_id_str = str(getattr(target_el, "ID64", getattr(target_el, "ID", ""))) if target_el else "Assembled_Line"
 
         return {
             "success": True,
             "file_name": dgn.Name,
             "element_id": target_id_str,
-            "level": lvl_str,
+            "level": target_level_name or "Level 10",
             "so_thua": so_thua or "Chưa rõ",
             "to_ban_do": to_ban_do or "Chưa rõ",
             "loai_dat": loai_dat or "ODT",
