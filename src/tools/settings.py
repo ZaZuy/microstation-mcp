@@ -102,43 +102,20 @@ def register_settings_tools(mcp):
         :param view_number: Số hiệu View (1-8, nếu None sẽ áp dụng toàn cục)
         """
         app = bridge.get_app()
-        dgn = bridge.get_active_file()
         try:
-            lvl = dgn.Levels(level_name)
-        except Exception:
-            lvl = None
-
-        if not lvl:
-            return f"Lỗi: Không tìm thấy Level '{level_name}' trong bản vẽ!"
-
-        try:
-            if view_number and 1 <= view_number <= app.Views.Count:
-                try:
-                    v = app.Views(view_number)
-                    lvl.SetIsDisplayedInView(v, bool(is_displayed))
-                    v.Redraw()
-                except Exception:
-                    action = "on" if is_displayed else "off"
-                    app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
-                    app.CadInputQueue.SendKeyin(f"view update {view_number}")
-            else:
-                try:
-                    lvl.IsDisplayed = bool(is_displayed)
-                    dgn.RewriteLevels()
-                except Exception:
-                    pass
-                action = "on" if is_displayed else "off"
-                app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
-                app.CadInputQueue.SendKeyin("update all")
-
-            state_str = "Bật" if is_displayed else "Tắt"
-            view_str = f" trong View {view_number}" if view_number else " trên tất cả View"
-            return f"Đã {state_str} hiển thị cho Level '{level_name}'{view_str}."
-        except Exception as ex:
             action = "on" if is_displayed else "off"
             app.CadInputQueue.SendKeyin(f'level set display {action} "{level_name}"')
-            app.CadInputQueue.SendKeyin("update all")
-            return f"Đã gửi lệnh key-in thay đổi hiển thị Level '{level_name}' ({action})."
+            if view_number and 1 <= int(view_number) <= 8:
+                app.CadInputQueue.SendKeyin(f"view update {int(view_number)}")
+                view_str = f" trong View {view_number}"
+            else:
+                app.CadInputQueue.SendKeyin("update all")
+                view_str = " trên tất cả View"
+
+            state_str = "Bật" if is_displayed else "Tắt"
+            return f"Đã {state_str} hiển thị cho Level '{level_name}'{view_str}."
+        except Exception as ex:
+            return f"Lỗi khi đổi trạng thái hiển thị Level '{level_name}': {ex}"
 
     @mcp.tool
     def match_element_attributes(element_id: str) -> str:
