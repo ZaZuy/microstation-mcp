@@ -213,16 +213,25 @@ def register_query_tools(mcp):
             elif el_type == 7:  # TextNode
                 try:
                     item["type_name"] = "TextNode"
-                    tne = getattr(el, "AsTextNodeElement", None)
-                    tne = tne() if callable(tne) else tne
-                    if tne:
-                        lines = []
-                        cnt = getattr(tne, "TextLinesCount", 0)
-                        for i in range(1, cnt + 1):
-                            lines.append(tne.TextLine(i))
+                    lines = []
+                    cnt = getattr(el, "TextLinesCount", None)
+                    pt = getattr(el, "Origin", None)
+                    if cnt is None:
+                        tne = getattr(el, "AsTextNodeElement", None)
+                        tne = tne() if callable(tne) else tne
+                        if tne:
+                            cnt = getattr(tne, "TextLinesCount", 0)
+                            for i in range(1, cnt + 1):
+                                lines.append(tne.TextLine(i))
+                            if not pt:
+                                pt = getattr(tne, "Origin", None)
+                    else:
+                        for i in range(1, int(cnt) + 1):
+                            lines.append(el.TextLine(i))
+                    if lines:
                         item["text"] = "\n".join(lines)
-                        pt = tne.Origin
-                        item["origin"] = [round(pt.X, 3), round(pt.Y, 3)]
+                    if pt:
+                        item["origin"] = [round(float(pt.X), 3), round(float(pt.Y), 3)]
                 except Exception:
                     pass
             elif el_type == 3:  # Line
@@ -362,15 +371,26 @@ def register_query_tools(mcp):
                 pass
         elif el_type == 7:  # TextNode
             try:
-                tne = getattr(el, "AsTextNodeElement", None)
-                tne = tne() if callable(tne) else tne
-                if tne:
+                lines = []
+                cnt = getattr(el, "TextLinesCount", None)
+                pt = getattr(el, "Origin", None)
+                if cnt is None:
+                    tne = getattr(el, "AsTextNodeElement", None)
+                    tne = tne() if callable(tne) else tne
+                    if tne:
+                        cnt = getattr(tne, "TextLinesCount", 0)
+                        for i in range(1, cnt + 1):
+                            lines.append(tne.TextLine(i))
+                        if not pt:
+                            pt = getattr(tne, "Origin", None)
+                else:
+                    for i in range(1, int(cnt) + 1):
+                        lines.append(el.TextLine(i))
+                if lines:
                     details["type_name"] = "TextNode"
-                    lines = []
-                    for i in range(1, tne.TextLinesCount + 1):
-                        lines.append(tne.TextLine(i))
                     details["text"] = "\n".join(lines)
-                    details["origin"] = [round(float(tne.Origin.X), 3), round(float(tne.Origin.Y), 3)]
+                if pt:
+                    details["origin"] = [round(float(pt.X), 3), round(float(pt.Y), 3)]
             except Exception:
                 pass
         elif el_type == 3:  # Line

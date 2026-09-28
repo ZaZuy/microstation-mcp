@@ -186,14 +186,26 @@ def register_text_tools(mcp):
                         continue
                 elif el_type == 7:  # TextNode
                     try:
-                        tne = getattr(el, "AsTextNodeElement", None)
-                        tne = tne() if callable(tne) else tne
-                        if not tne:
+                        lines = []
+                        cnt = getattr(el, "TextLinesCount", None)
+                        pt = getattr(el, "Origin", None)
+                        if cnt is None:
+                            tne = getattr(el, "AsTextNodeElement", None)
+                            tne = tne() if callable(tne) else tne
+                            if tne:
+                                cnt = getattr(tne, "TextLinesCount", 0)
+                                for i in range(1, cnt + 1):
+                                    lines.append(tne.TextLine(i))
+                                if not pt:
+                                    pt = getattr(tne, "Origin", None)
+                        else:
+                            for i in range(1, int(cnt) + 1):
+                                lines.append(el.TextLine(i))
+                        if not lines:
                             continue
-                        lines = [tne.TextLine(i) for i in range(1, tne.TextLinesCount + 1)]
                         text_val = "\n".join(lines)
-                        pt = tne.Origin
-                        origin = [round(pt.X, 3), round(pt.Y, 3)]
+                        if pt:
+                            origin = [round(float(pt.X), 3), round(float(pt.Y), 3)]
                         type_name = "TextNode"
                     except Exception:
                         continue

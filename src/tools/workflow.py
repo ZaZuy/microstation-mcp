@@ -16,6 +16,67 @@ from src.tools.dimension import _get_polygon_from_element, _calc_centroid_and_ar
 logger = logging.getLogger(__name__)
 
 
+def _assemble_lines_into_polygons(line_segments: List[List[List[float]]], tol: float = 0.05) -> List[List[List[float]]]:
+    """
+    Nối các đoạn thẳng Line rời rạc thành các vòng đa giác khép kín (closed loops).
+    line_segments: danh sách các đoạn [[[x1, y1], [x2, y2]], ...]
+    """
+    if not line_segments or len(line_segments) < 3:
+        return []
+
+    remaining = [list(seg) for seg in line_segments]
+    polygons = []
+
+    while remaining:
+        seg = remaining.pop(0)
+        curr_poly = [list(seg[0]), list(seg[1])]
+
+        extended = True
+        while extended and remaining:
+            extended = False
+            last_pt = curr_poly[-1]
+            first_pt = curr_poly[0]
+
+            # Kiểm tra xem vòng đã tự khép kín chưa
+            if len(curr_poly) >= 4 and math.hypot(last_pt[0] - first_pt[0], last_pt[1] - first_pt[1]) <= tol:
+                break
+
+            best_idx = -1
+            best_reverse = False
+            best_dist = tol + 1e-4
+
+            for i, other in enumerate(remaining):
+                d_start = math.hypot(other[0][0] - last_pt[0], other[0][1] - last_pt[1])
+                d_end = math.hypot(other[1][0] - last_pt[0], other[1][1] - last_pt[1])
+                if d_start <= tol and d_start < best_dist:
+                    best_dist = d_start
+                    best_idx = i
+                    best_reverse = False
+                elif d_end <= tol and d_end < best_dist:
+                    best_dist = d_end
+                    best_idx = i
+                    best_reverse = True
+
+            if best_idx >= 0:
+                nxt = remaining.pop(best_idx)
+                if best_reverse:
+                    curr_poly.append(list(nxt[0]))
+                else:
+                    curr_poly.append(list(nxt[1]))
+                extended = True
+
+        # Đóng vòng
+        if len(curr_poly) >= 4:
+            first_pt = curr_poly[0]
+            last_pt = curr_poly[-1]
+            if math.hypot(last_pt[0] - first_pt[0], last_pt[1] - first_pt[1]) <= tol:
+                curr_poly = curr_poly[:-1]  # Chuẩn hóa bỏ điểm đóng cuối
+            if len(curr_poly) >= 3:
+                polygons.append(curr_poly)
+
+    return polygons
+
+
 def register_workflow_tools(mcp):
     """Đăng ký các tool điều phối quy trình cao cấp vào MCP Server."""
 
@@ -655,67 +716,6 @@ def register_workflow_tools(mcp):
             "calculated_area_m2": round(area, 2),
             "closed_points": closed_points
         }
-
-def _assemble_lines_into_polygons(line_segments: List[List[List[float]]], tol: float = 0.05) -> List[List[List[float]]]:
-    """
-    Nối các đoạn thẳng Line rời rạc thành các vòng đa giác khép kín (closed loops).
-    line_segments: danh sách các đoạn [[[x1, y1], [x2, y2]], ...]
-    """
-    if not line_segments or len(line_segments) < 3:
-        return []
-
-    remaining = [list(seg) for seg in line_segments]
-    polygons = []
-
-    while remaining:
-        seg = remaining.pop(0)
-        curr_poly = [list(seg[0]), list(seg[1])]
-
-        extended = True
-        while extended and remaining:
-            extended = False
-            last_pt = curr_poly[-1]
-            first_pt = curr_poly[0]
-
-            # Kiểm tra xem vòng đã tự khép kín chưa
-            if len(curr_poly) >= 4 and math.hypot(last_pt[0] - first_pt[0], last_pt[1] - first_pt[1]) <= tol:
-                break
-
-            best_idx = -1
-            best_reverse = False
-            best_dist = tol + 1e-4
-
-            for i, other in enumerate(remaining):
-                d_start = math.hypot(other[0][0] - last_pt[0], other[0][1] - last_pt[1])
-                d_end = math.hypot(other[1][0] - last_pt[0], other[1][1] - last_pt[1])
-                if d_start <= tol and d_start < best_dist:
-                    best_dist = d_start
-                    best_idx = i
-                    best_reverse = False
-                elif d_end <= tol and d_end < best_dist:
-                    best_dist = d_end
-                    best_idx = i
-                    best_reverse = True
-
-            if best_idx >= 0:
-                nxt = remaining.pop(best_idx)
-                if best_reverse:
-                    curr_poly.append(list(nxt[0]))
-                else:
-                    curr_poly.append(list(nxt[1]))
-                extended = True
-
-        # Đóng vòng
-        if len(curr_poly) >= 4:
-            first_pt = curr_poly[0]
-            last_pt = curr_poly[-1]
-            if math.hypot(last_pt[0] - first_pt[0], last_pt[1] - first_pt[1]) <= tol:
-                curr_poly = curr_poly[:-1]  # Chuẩn hóa bỏ điểm đóng cuối
-            if len(curr_poly) >= 3:
-                polygons.append(curr_poly)
-
-    return polygons
-
 
     @mcp.tool
     def get_cadastral_parcel_table(
