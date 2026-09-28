@@ -141,7 +141,17 @@ def _batch_draw_via_com(elements: List[Dict[str, Any]], use_undo_group: bool = T
                 
                 origin = bridge.create_point(tx, ty, tz)
                 matrix = bridge.create_rotation_matrix(rotation)
-                created_elem = bridge.unwrap(app.CreateTextElement1(None, content, origin, matrix))
+                clean_content = str(content)
+                try:
+                    clean_content.encode('ascii')
+                except UnicodeEncodeError:
+                    import unicodedata
+                    clean = unicodedata.normalize('NFD', clean_content)
+                    clean = ''.join(c for c in clean if unicodedata.category(c) != 'Mn')
+                    clean = clean.replace('đ', 'd').replace('Đ', 'D')
+                    clean_content = clean.encode('ascii', 'replace').decode('ascii').replace('?', ' ')
+
+                created_elem = bridge.unwrap(app.CreateTextElement1(None, clean_content, origin, matrix))
                 try:
                     created_elem.TextStyle.Height = height
                     created_elem.TextStyle.Width = width
@@ -325,6 +335,9 @@ def register_native_batch_tools(mcp, pipe_client: PipeClient) -> None:
             )
 
             results  = response.get('results', [])
+            if not response.get('success') or not results:
+                return _batch_draw_via_com(elements, use_undo_group)
+
             elem_ids = [r.get('element_id') for r in results if r.get('success')]
             errors   = [
                 f"Element[{i}] ({r.get('type','?')}): {r.get('message','Lỗi không xác định')}"

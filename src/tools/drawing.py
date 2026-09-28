@@ -623,9 +623,9 @@ def register_drawing_tools(mcp):
         is_closed = math.hypot(points[0][0] - points[-1][0], points[0][1] - points[-1][1]) < 1e-4 and len(points) >= 4
 
         if is_closed:
-            el = bridge.unwrap(app.CreateShapeElement1(None, pt_objs))
+            el = bridge.unwrap(app.CreateShapeElement1(None, pt_objs, 0))
         else:
-            el = bridge.unwrap(app.CreateLineStringElement1(None, pt_objs))
+            el = bridge.unwrap(app.CreateLineElement1(None, pt_objs))
 
         bridge.apply_symbology(el, level=level, color=color, weight=weight, style=style)
         bridge.add_element(el)

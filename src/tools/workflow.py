@@ -155,22 +155,26 @@ def register_workflow_tools(mcp):
                     {"elements": elements, "use_undo_group": use_undo_group},
                 )
                 results = response.get("results", [])
-                elem_ids = [r.get("element_id") for r in results if r.get("success")]
-                errors = [
-                    f"Element[{i}] ({r.get('type','?')}): {r.get('message','Lỗi không xác định')}"
-                    for i, r in enumerate(results) if not r.get("success")
-                ]
-                created = len(elem_ids)
-                failed = len(elements) - created
-                result_json = {
-                    "success": failed == 0,
-                    "total": len(elements),
-                    "created": created,
-                    "failed": failed,
-                    "element_ids": [eid for eid in elem_ids if eid is not None],
-                    "errors": errors,
-                    "executed_via": "native_pipe"
-                }
+                if not response.get("success") or not results:
+                    raw_com = _batch_draw_via_com(elements, use_undo_group)
+                    result_json = json.loads(raw_com)
+                else:
+                    elem_ids = [r.get("element_id") for r in results if r.get("success")]
+                    errors = [
+                        f"Element[{i}] ({r.get('type','?')}): {r.get('message','Lỗi không xác định')}"
+                        for i, r in enumerate(results) if not r.get("success")
+                    ]
+                    created = len(elem_ids)
+                    failed = len(elements) - created
+                    result_json = {
+                        "success": failed == 0,
+                        "total": len(elements),
+                        "created": created,
+                        "failed": failed,
+                        "element_ids": [eid for eid in elem_ids if eid is not None],
+                        "errors": errors,
+                        "executed_via": "native_pipe"
+                    }
             except (PipeConnectionError, PipeError) as ex:
                 logger.info(f"Pipe error trong workflow ({ex}), tự động fallback sang COM.")
                 raw_com = _batch_draw_via_com(elements, use_undo_group)

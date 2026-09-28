@@ -108,7 +108,14 @@ def register_modify_tools(mcp):
             return f"Lỗi: Không tìm thấy phần tử có ID {element_id}"
 
         origin = bridge.create_point(origin_x, origin_y, 0.0)
-        el.ScaleAll(origin, float(scale_factor))
+        sf = float(scale_factor)
+        try:
+            el.ScaleAll(origin, sf, sf, sf)
+        except Exception:
+            try:
+                el.ScaleUniform(origin, sf)
+            except Exception:
+                el.ScaleAll(origin, sf, sf, 1.0)
         try:
             el.Rewrite()
             el.Redraw()
@@ -201,8 +208,10 @@ def register_modify_tools(mcp):
                 closed_el.FillMode = 1  # msdFillModeFilled
                 closed_el.FillColor = int(fill_color)
                 if level:
-                    dgn_file = bridge.get_active_file()
-                    lvl_obj = dgn_file.Levels.Find(level)
+                    try:
+                        lvl_obj = dgn_file.Levels(level)
+                    except Exception:
+                        lvl_obj = None
                     if lvl_obj:
                         closed_el.Level = lvl_obj
                 closed_el.Rewrite()

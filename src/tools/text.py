@@ -43,7 +43,18 @@ def register_text_tools(mcp):
         origin = bridge.create_point(x, y, 0.0)
         matrix = bridge.create_rotation_matrix(rotation_deg)
 
-        text_elem = bridge.unwrap(app.CreateTextElement1(None, str(text), origin, matrix))
+        # Tự động chuẩn hóa chuỗi text cho MicroStation V8i COM (tránh lỗi COM Unicode)
+        clean_text = str(text)
+        try:
+            clean_text.encode('ascii')
+        except UnicodeEncodeError:
+            import unicodedata
+            clean = unicodedata.normalize('NFD', clean_text)
+            clean = ''.join(c for c in clean if unicodedata.category(c) != 'Mn')
+            clean = clean.replace('đ', 'd').replace('Đ', 'D')
+            clean_text = clean.encode('ascii', 'replace').decode('ascii').replace('?', ' ')
+
+        text_elem = bridge.unwrap(app.CreateTextElement1(None, clean_text, origin, matrix))
 
         try:
             text_elem.TextStyle.Height = float(height)
@@ -109,7 +120,16 @@ def register_text_tools(mcp):
             pass
 
         for line in lines:
-            node_elem.AddTextLine(str(line))
+            clean_line = str(line)
+            try:
+                clean_line.encode('ascii')
+            except UnicodeEncodeError:
+                import unicodedata
+                clean = unicodedata.normalize('NFD', clean_line)
+                clean = ''.join(c for c in clean if unicodedata.category(c) != 'Mn')
+                clean = clean.replace('đ', 'd').replace('Đ', 'D')
+                clean_line = clean.encode('ascii', 'replace').decode('ascii').replace('?', ' ')
+            node_elem.AddTextLine(clean_line)
 
         bridge.apply_symbology(node_elem, level=level, color=color)
         bridge.add_element(node_elem)
@@ -277,13 +297,22 @@ def register_text_tools(mcp):
 
             if int(el.Type) == 17:  # Text
                 try:
-                    te = el.AsTextElement()
-                    cur_text = te.Text
+                    cur_text = getattr(el, "Text", None)
+                    if cur_text is None:
+                        try:
+                            te = el.AsTextElement()
+                            cur_text = te.Text
+                        except Exception:
+                            continue
                     if (find_str in cur_text) if case_sensitive else (find_str.lower() in cur_text.lower()):
-                        new_text = cur_text.replace(find_str, replace_with)
-                        te.Text = new_text
-                        te.Rewrite()
-                        te.Redraw()
+                        import re
+                        new_text = cur_text.replace(find_str, replace_with) if case_sensitive else re.sub(re.escape(find_str), replace_with, cur_text, flags=re.IGNORECASE)
+                        try:
+                            el.Text = new_text
+                        except Exception:
+                            pass
+                        el.Rewrite()
+                        el.Redraw()
                         replaced_count += 1
                 except Exception:
                     continue

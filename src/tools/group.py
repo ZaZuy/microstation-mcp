@@ -8,6 +8,42 @@ from typing import List, Optional, Dict, Any
 from src.core.ms_bridge import bridge
 
 
+import math
+
+def _extract_ordered_points(elems):
+    pts = []
+    for el in elems:
+        el_type = int(el.Type)
+        p1 = getattr(el, "StartPoint", None)
+        p2 = getattr(el, "EndPoint", None)
+        if p1 is None or p2 is None:
+            le = getattr(el, "AsLineElement", None)
+            le = le() if callable(le) else le
+            if le:
+                p1 = getattr(le, "StartPoint", None)
+                p2 = getattr(le, "EndPoint", None)
+        if p1 and p2:
+            if not pts:
+                pts.append(bridge.create_point(p1.X, p1.Y, getattr(p1, "Z", 0.0)))
+                pts.append(bridge.create_point(p2.X, p2.Y, getattr(p2, "Z", 0.0)))
+            else:
+                last = pts[-1]
+                d1 = math.hypot(last.X - p1.X, last.Y - p1.Y)
+                d2 = math.hypot(last.X - p2.X, last.Y - p2.Y)
+                if d1 < d2:
+                    pts.append(bridge.create_point(p2.X, p2.Y, getattr(p2, "Z", 0.0)))
+                else:
+                    pts.append(bridge.create_point(p1.X, p1.Y, getattr(p1, "Z", 0.0)))
+        elif el_type == 4:
+            try:
+                raw_pts = el.GetVertices()
+                for p in raw_pts:
+                    pts.append(bridge.create_point(p.X, p.Y, getattr(p, "Z", 0.0)))
+            except Exception:
+                pass
+    return pts
+
+
 def register_group_tools(mcp):
     """Đăng ký các công cụ nhóm và chuỗi/hình phức hợp vào MCP Server."""
 
@@ -43,33 +79,33 @@ def register_group_tools(mcp):
                 return {"error": f"Không tìm thấy phần tử có ID '{eid}'!"}
             elems_to_chain.append(el)
 
-        try:
-            # Tạo ComplexStringElement từ mảng đối tượng
-            chain_elem = bridge.unwrap(app.CreateComplexStringElement1(elems_to_chain))
-            bridge.apply_symbology(chain_elem, level=level, color=color, weight=weight, style=style)
-            bridge.add_element(chain_elem)
-
-            # Xóa các phần tử con ban đầu để tránh trùng lặp
-            for el in elems_to_chain:
-                try:
-                    model.RemoveElement(el)
-                except Exception:
-                    pass
-
-            new_id = str(getattr(chain_elem, "ID64", getattr(chain_elem, "ID", "")))
-            return {
-                "status": "success",
-                "message": f"Đã tạo thành công Complex Chain (ID {new_id}) từ {len(element_ids)} đoạn thẳng/cung tròn.",
-                "element_id": new_id,
-            }
-        except Exception as ex:
-            # Fallback dùng Keyin 'create complex string manual'
+        pts = _extract_ordered_points(elems_to_chain)
+        if len(pts) >= 2:
             try:
-                cmd = f"create complex string manual"
-                app.CadInputQueue.SendKeyin(cmd)
-                return {"status": "success", "message": f"Đã gửi lệnh tạo Complex Chain qua CAD Engine: {str(ex)}"}
-            except Exception as ex2:
-                return {"error": f"Lỗi khi tạo Complex Chain: {str(ex)} | {str(ex2)}"}
+                chain_elem = bridge.unwrap(app.CreateLineElement1(None, pts))
+                target_level = level if level else (elems_to_chain[0].Level.Name if elems_to_chain[0].Level else None)
+                target_color = color if color is not None else elems_to_chain[0].Color
+                target_weight = weight if weight is not None else elems_to_chain[0].LineWeight
+                target_style = style if style is not None else elems_to_chain[0].LineStyle
+                bridge.apply_symbology(chain_elem, level=target_level, color=target_color, weight=target_weight, style=target_style)
+                bridge.add_element(chain_elem)
+
+                for el in elems_to_chain:
+                    try:
+                        model.RemoveElement(el)
+                    except Exception:
+                        pass
+
+                new_id = str(getattr(chain_elem, "ID64", getattr(chain_elem, "ID", "")))
+                return {
+                    "status": "success",
+                    "message": f"Đã tạo thành công Complex Chain/LineString (ID {new_id}) từ {len(element_ids)} đoạn thẳng.",
+                    "element_id": new_id,
+                }
+            except Exception as ex:
+                return {"error": f"Lỗi khi tạo Complex Chain: {str(ex)}"}
+
+        return {"error": "Không thể trích xuất đỉnh tọa độ từ các đoạn thẳng chỉ định!"}
 
     @mcp.tool
     def create_complex_shape(
@@ -102,32 +138,38 @@ def register_group_tools(mcp):
                 return {"error": f"Không tìm thấy phần tử có ID '{eid}'!"}
             elems_to_shape.append(el)
 
-        try:
-            fill_mode = 1 if fill_color is not None else 0
-            shape_elem = bridge.unwrap(app.CreateComplexShapeElement1(elems_to_shape, fill_mode))
-            bridge.apply_symbology(shape_elem, level=level, color=color, weight=weight)
-            if fill_color is not None:
-                try:
-                    shape_elem.FillColor = int(fill_color)
-                except Exception:
-                    pass
-            bridge.add_element(shape_elem)
+        pts = _extract_ordered_points(elems_to_shape)
+        if len(pts) >= 3:
+            try:
+                fill_mode = 1 if fill_color is not None else 0
+                shape_elem = bridge.unwrap(app.CreateShapeElement1(None, pts, fill_mode))
+                target_level = level if level else (elems_to_shape[0].Level.Name if elems_to_shape[0].Level else None)
+                target_color = color if color is not None else elems_to_shape[0].Color
+                target_weight = weight if weight is not None else elems_to_shape[0].LineWeight
+                bridge.apply_symbology(shape_elem, level=target_level, color=target_color, weight=target_weight)
+                if fill_color is not None:
+                    try:
+                        shape_elem.FillColor = int(fill_color)
+                    except Exception:
+                        pass
+                bridge.add_element(shape_elem)
 
-            # Xóa các đoạn rời rạc ban đầu
-            for el in elems_to_shape:
-                try:
-                    model.RemoveElement(el)
-                except Exception:
-                    pass
+                for el in elems_to_shape:
+                    try:
+                        model.RemoveElement(el)
+                    except Exception:
+                        pass
 
-            new_id = str(getattr(shape_elem, "ID64", getattr(shape_elem, "ID", "")))
-            return {
-                "status": "success",
-                "message": f"Đã tạo thành công Complex Shape khép kín (ID {new_id}) từ {len(element_ids)} cạnh.",
-                "element_id": new_id,
-            }
-        except Exception as ex:
-            return {"error": f"Lỗi khi tạo Complex Shape: {str(ex)}"}
+                new_id = str(getattr(shape_elem, "ID64", getattr(shape_elem, "ID", "")))
+                return {
+                    "status": "success",
+                    "message": f"Đã tạo thành công Complex Shape/Shape khép kín (ID {new_id}) từ {len(element_ids)} cạnh.",
+                    "element_id": new_id,
+                }
+            except Exception as ex:
+                return {"error": f"Lỗi khi tạo Complex Shape: {str(ex)}"}
+
+        return {"error": "Không thể trích xuất đỉnh tọa độ khép kín từ các phần tử chỉ định!"}
 
     @mcp.tool
     def create_graphic_group(
