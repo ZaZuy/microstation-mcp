@@ -161,3 +161,15 @@ Khi người dùng gửi ảnh và yêu cầu *"số hóa"*, *"chuyển ảnh th
 - Sai số vị trí điểm trên ranh giới thửa so với điểm khống chế gần nhất không được vượt quá giới hạn theo tỷ lệ bản đồ (Điều 8).
 - Khung bản đồ và lưới km phải tuân thủ Điều 4 và mẫu tại Phụ lục 22.
 - Khi biên tập phải đảm bảo thứ tự ưu tiên thể hiện: ký hiệu dạng điểm → nhãn thửa → các yếu tố khác.
+
+### 10. QUY TẮC BẮT BUỘC: VỪA CODE VỪA TEST THỰC ĐỊA (VERIFICATION-FIRST)
+
+**TUYỆT ĐỐI KHÔNG ĐOÁN MÒ HOẶC BÀN GIAO KHI CHƯA CHẠY KIỂM THỬ TRỰC TIẾP TRÊN DỮ LIỆU THẬT.**
+
+Mọi thao tác tạo công cụ, viết addon WinForms, trích xuất dữ liệu hoặc vẽ CAD bắt buộc phải tuân theo chu trình kiểm thử:
+1. **Kiểm tra kết nối và nhận diện file DGN**: Chạy thử hàm đọc trạng thái file (`GetCurrentFileState` hoặc `get_drawing_info`). Bắt buộc phải xác nhận đúng tên file DGN đang mở trước khi thao tác.
+2. **Kiểm thử logic bằng lệnh chạy thực tế (`dotnet run -- --test` hoặc gọi MCP tool)**: Phải chạy thực tế và in ra màn hình các thông số (Số thửa, Tờ BĐ, Diện tích, Danh sách tọa độ đỉnh X/Y, Chiều dài cạnh). So sánh đối chiếu với dữ liệu thật, nếu sai lệch phải debug sửa ngay lập tức trước khi thông báo cho người dùng.
+3. **Kiểm tra tính khép kín & diện tích**: Luôn gọi hàm tính diện tích/chu vi, đảm bảo đỉnh khép góc trùng khớp đỉnh đầu tiên (sai số $\le 0.001\text{m}$).
+4. **Kiểm thử ứng dụng GUI & File EXE sau khi build**:
+   - Sau khi biên dịch `dotnet build`, chạy thử tiến trình ứng dụng bằng PowerShell để kiểm tra xem form có nảy lên không, có crash ngầm không (`Responding: True`, không có file lỗi `app_error.txt`).
+   - Sau khi `dotnet publish` ra file `.exe` độc lập trong `Publish/`, phải kiểm tra kích thước và tính toàn vẹn của file trước khi bàn giao.

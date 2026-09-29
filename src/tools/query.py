@@ -142,13 +142,41 @@ def register_query_tools(mcp):
 
         has_spatial_filter = any(v is not None for v in (min_x, min_y, max_x, max_y))
 
-        for idx in range(1, cache.Count + 1):
-            try:
-                el = cache.GetElement(idx)
-            except Exception:
-                continue
-            if not el:
-                continue
+        app = bridge.get_app()
+        enumerator = None
+        try:
+            scan_criteria = app.CreateObjectInMicroStation("MicroStationDGN.ElementScanCriteria")
+            if target_type_id is not None:
+                scan_criteria.ExcludeAllTypes()
+                scan_criteria.IncludeType(target_type_id)
+            if level:
+                try:
+                    lvl_obj = model.Levels.Item(str(level))
+                    if lvl_obj:
+                        scan_criteria.ExcludeAllLevels()
+                        scan_criteria.IncludeLevel(lvl_obj)
+                except Exception:
+                    pass
+            enumerator = model.Scan(scan_criteria)
+        except Exception:
+            enumerator = cache.Scan() if hasattr(cache, "Scan") else None
+
+        def _iter_elements():
+            if enumerator is not None:
+                while enumerator.MoveNext():
+                    curr = enumerator.Current
+                    if curr:
+                        yield curr
+            else:
+                for idx in range(1, cache.Count + 1):
+                    try:
+                        curr = cache.GetElement(idx)
+                        if curr:
+                            yield curr
+                    except Exception:
+                        continue
+
+        for el in _iter_elements():
 
             lvl_name = el.Level.Name if el.Level else ""
             if level and lvl_name.lower() != str(level).lower():
