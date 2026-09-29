@@ -211,14 +211,11 @@ def build_exe():
     install_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "MicroStation-AI-CAD")
     if os.path.exists(install_dir) and os.path.exists(mcp_exe):
         try:
-            subprocess.run(["taskkill", "/F", "/IM", "Vigela_MCP_Server.exe"], capture_output=True)
-            import time
-            time.sleep(0.5)
             target_mcp = os.path.join(install_dir, f"{MCP_SERVER_EXE_NAME}.exe")
             shutil.copy2(mcp_exe, target_mcp)
             print(f"    => Đã cập nhật trực tiếp vào thư mục cài đặt: {target_mcp}")
         except Exception as e:
-            print(f"    (Không thể cập nhật vào thư mục cài đặt: {e})")
+            print(f"    (File cài đặt hiện tại đang chạy nên không ghi đè, bản build mới đã sẵn sàng trong dist: {e})")
 
     installer_path = os.path.join(DIST_DIR, f"{INSTALLER_EXE_NAME}.exe")
     shutil.rmtree(BUILD_DIR, ignore_errors=True)

@@ -173,3 +173,19 @@ Mọi thao tác tạo công cụ, viết addon WinForms, trích xuất dữ li�
 4. **Kiểm thử ứng dụng GUI & File EXE sau khi build**:
    - Sau khi biên dịch `dotnet build`, chạy thử tiến trình ứng dụng bằng PowerShell để kiểm tra xem form có nảy lên không, có crash ngầm không (`Responding: True`, không có file lỗi `app_error.txt`).
    - Sau khi `dotnet publish` ra file `.exe` độc lập trong `Publish/`, phải kiểm tra kích thước và tính toàn vẹn của file trước khi bàn giao.
+
+### 11. QUY TẮC BÀN GIAO CHO NGƯỜI DÙNG PHỔ THÔNG (NON-DEV FRIENDLY)
+
+**Người dùng thực tế là kỹ sư thực địa, cán bộ địa chính, không phải là lập trình viên.**
+- **Bắt buộc tạo file chạy nhanh 1-Click (`.bat`)**: Tự động tạo file `.bat` nằm ngay tại thư mục làm việc, mã hóa UTF-8 tiếng Việt, trỏ đến file `.exe` portable. Người dùng chỉ cần nhấp đúp chuột là mở tool.
+- **Hướng dẫn sử dụng bằng ngôn ngữ bình dân**:
+  - Không dùng các thuật ngữ: CLI, terminal, dotnet run, interop, build, dependencies...
+  - Hướng dẫn rõ ràng từng bước theo thao tác chuột: Bước 1 mở MicroStation -> Bước 2 nhấp đúp file `.bat` -> Bước 3 bấm nút -> Bước 4 chọn dòng -> Bước 5 bấm nút xuất Excel hoặc sao chép dán vào Word (Ctrl+V).
+  - Lập bảng danh sách giải thích ý nghĩa từng nút bấm trên form.
+- **Hướng dẫn chia sẻ cho đồng nghiệp**: Nêu rõ cách copy file `.exe` trong `Publish/` gửi qua Zalo/USB sang máy khác là dùng được ngay không cần cài đặt gì thêm.
+
+### 12. GIỮ GÌN VỆ SINH THƯ MỤC DỰ ÁN (WORKSPACE HYGIENE)
+
+- Thư mục `microstation-mcp` là dự án MCP Server, **TUYỆT ĐỐI KHÔNG ĐƯỢC** tự ý tạo các script thử nghiệm ngoài lề, file giao diện Python (`tools_gui/`) hay file bat tạm trong thư mục này.
+- Khi người dùng yêu cầu tạo tool/addon, mọi mã nguồn phải đặt trong thư mục dự án riêng biệt (ví dụ: `d:\3. Task\VIGELA\<AppName>\`).
+- Mọi file tạm, file log kiểm tra sinh ra trong quá trình debug phải được tự động dọn dẹp sạch sẽ trước khi bàn giao.
