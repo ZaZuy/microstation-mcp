@@ -212,27 +212,44 @@ def analyze_cadastral_status() -> Dict[str, Any]:
                     c = inter.centroid
                     lo_gioi_centroid = [round(c.x, 3), round(c.y, 3)]
     elif data["lines_l50"]:
-        # Tạo đường LineString lộ giới và cắt thửa đất
+        # Tạo đường LineString lộ giới và cắt thửa đất bằng shapely.ops.split
         try:
+            from shapely.ops import split
             line_coords = []
             for seg in data["lines_l50"]:
                 line_coords.append(seg[0])
                 line_coords.append(seg[1])
             if len(line_coords) >= 2:
-                # Tìm phần diện tích kẹp giữa ranh lộ giới và ranh thửa đất
-                ls = LineString([(p[0], p[1]) for p in line_coords])
-                inter_line = poly_parcel_shapely.intersection(ls)
-                # Ước lượng diện tích lộ giới hoặc trích xuất từ nhãn text nếu có
+                p_start = line_coords[0]
+                p_end = line_coords[-1]
+                dx = p_end[0] - p_start[0]
+                dy = p_end[1] - p_start[1]
+                L = math.hypot(dx, dy)
+                if L > 0.01:
+                    # Kéo dài 2 đầu đường ranh lộ giới để đảm bảo cắt xuyên qua toàn bộ đa giác thửa đất
+                    ext_p1 = (p_start[0] - dx / L * 50.0, p_start[1] - dy / L * 50.0)
+                    ext_p2 = (p_end[0] + dx / L * 50.0, p_end[1] + dy / L * 50.0)
+                    cut_line = LineString([ext_p1, ext_p2])
+                    
+                    parts = split(poly_parcel_shapely, cut_line)
+                    if hasattr(parts, "geoms") and len(parts.geoms) >= 2:
+                        # Phần diện tích nhỏ hơn chính là phần dải đất vướng hành lang lộ giới
+                        sorted_parts = sorted(parts.geoms, key=lambda g: g.area)
+                        lg_part = sorted_parts[0]
+                        if lg_part.area > 0.1:
+                            lo_gioi_area = lg_part.area
+                            c = lg_part.centroid
+                            lo_gioi_centroid = [round(c.x, 3), round(c.y, 3)]
         except Exception:
             pass
 
-    # Nếu chưa tính được lộ giới qua polygon, tìm nhãn "LGQH" hoặc text liên quan
-    if lo_gioi_area == 0.0:
+    # Nếu chưa tính được lộ giới qua polygon, tìm nhãn "LGQH" hoặc text liên quan để lấy vị trí
+    if not lo_gioi_centroid:
         for t in data["texts"]:
             txt = t["text"].lower()
-            if "lgqh" in txt or "lộ giới" in txt or "15.00m" in txt:
-                # Gần lộ giới
-                pass
+            if "lgqh" in txt or "lộ giới" in txt or "nhựa" in txt or "đường" in txt:
+                lo_gioi_centroid = t["origin"]
+                break
 
     return {
         "success": True,
