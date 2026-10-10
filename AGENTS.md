@@ -138,12 +138,21 @@ Khi người dùng yêu cầu đo đạc, vẽ, biên tập thửa đất, phân
   Nếu tường nhà trùng ranh thửa → **chỉ vẽ nét liền Level 10**, không vẽ nét đứt.
 - Nhà nhiều tầng có phạm vi khác nhau → thể hiện ký hiệu riêng từng tầng.
 
-### 7. BẮT BUỘC SỬ DỤNG MCP TOOL – TUYỆT ĐỐI CẤM CHẠY SCRIPT PYTHON
+### 7. BẮT BUỘC SỬ DỤNG 8 CONSOLIDATED MCP TOOLS – TUYỆT ĐỐI CẤM CHẠY SCRIPT NGOÀI TERMINAL
 
-- **TUYỆT ĐỐI KHÔNG ĐƯỢC** tự ý viết script Python, lệnh `python -c ...`, hoặc script PowerShell qua terminal để gọi COM `win32com.client` kết nối MicroStation.
-- **BẮT BUỘC 100%** phải sử dụng các công cụ có sẵn của MCP Server `microstation-v8i`.
-- **Ưu tiên hàng đầu**: Sử dụng công cụ trọn gói `cad_draw_workflow` để thiết lập Level/Color/Weight + vẽ Shape/Line/Text + Fit View trong 1 lượt gọi duy nhất.
-- Luôn kiểm tra tính **khép kín** của thửa đất bằng `measure_area`. Nếu không khép kín → cảnh báo ngay cho người dùng.
+- **Hệ thống đã nâng cấp lên 8 Công cụ Hợp nhất (Consolidated Tools)** chuẩn kiến trúc AutoCAD MCP v3.1:
+  1. `cadastral`: **Ưu tiên số 1 cho địa chính**. Dùng `cadastral(operation="auto_workflow")` để giải quyết trọn gói: phân tách ranh thửa nét liền L10, ranh chuyển mục đích nét đứt L10, ranh lộ giới L50, tính diện tích, đánh số đỉnh mốc, ghi kích thước cạnh, vẽ bảng tọa độ VN-2000 và fit view.
+  2. `drawing`: Quản lý file DGN, Model, Reference, Undo, Redo (`operation: info, open, save, create, models...`).
+  3. `entity`: Toàn bộ CRUD đối tượng 2D/3D (`operation: create_line, create_linestring, create_shape, create_circle, list, count, get, move, rotate, erase, batch_create...`).
+  4. `layer`: Quản lý Level (`operation: list, create, set_active, set_display...`).
+  5. `cell`: Quản lý Cell/Block (`operation: list, place, drop...`).
+  6. `annotation`: Ghi chữ, kích thước (`operation: create_text, create_dimension_aligned, find_text, replace_text...`).
+  7. `view`: Căn khung nhìn và **chụp ảnh màn hình đối soát** (`operation: fit_view, zoom_window, get_screenshot`).
+  8. `system`: Kiểm tra trạng thái và **thực thi Python nội bộ** (`operation: status, health, execute_keyin, execute_python`).
+
+- **KHI CẦN VIẾT SCRIPT XỬ LÝ DỮ LIỆU TÙY BIẾN**:
+  - **TUYỆT ĐỐI KHÔNG ĐƯỢC** mở terminal chạy lệnh `python -c ...` (sẽ lỗi `ModuleNotFoundError: No module named 'win32com'` và gây vòng lặp vô tận).
+  - **BẮT BUỘC** gọi tool: `system(operation="execute_python", data={"code": "..."})`. Server sẽ chạy script ngay trong tiến trình nội bộ với đầy đủ `bridge`, `app`, `model`, `dgn`, `shapely` an toàn 100%.
 
 ### 8. Quy tắc Tự động khi Nhận Yêu cầu "Số Hóa" từ Ảnh
 

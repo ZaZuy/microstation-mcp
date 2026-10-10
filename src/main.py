@@ -56,10 +56,17 @@ def main():
         help="Port cho giao thức SSE (mặc định: 8000)",
     )
 
+    parser.add_argument(
+        "--mode",
+        choices=["consolidated", "legacy", "both"],
+        default="consolidated",
+        help="Chế độ công cụ: 'consolidated' (8 tools - mặc định), 'legacy' (147 tools) hoặc 'both'",
+    )
+
     args = parser.parse_args()
 
-    # Tạo instance McpServer với đầy đủ cấu hình Tools, Resources, Prompts
-    server = create_server()
+    # Tạo instance McpServer với chế độ tools đã chọn
+    server = create_server(mode=args.mode)
 
     # Khởi chạy theo transport đã chọn
     if args.transport == "stdio":

@@ -104,3 +104,20 @@ pip install -r requirements.txt
 ```bash
 python src/main.py --transport sse --host 127.0.0.1 --port 8000
 ```
+
+---
+
+## 🛠️ Danh Mục 8 Công Cụ Hợp Nhất (Consolidated Tools v3.0)
+
+Lấy cảm hứng từ kiến trúc của **AutoCAD MCP v3.1**, hệ thống hợp nhất 147 công cụ vi mô thành **8 công cụ cốt lõi**, giúp giảm 95% token schema, tăng tốc độ phản hồi và ngăn ngừa hoàn toàn tình trạng AI bị loop:
+
+| Tool | Chức năng chính | Operations tiêu biểu |
+|---|---|---|
+| **`drawing`** | Quản lý tệp DGN & Khung vẽ | `info`, `open`, `save`, `create`, `models`, `references`, `undo`, `redo` |
+| **`entity`** | CRUD đối tượng 2D / 3D | `create_line`, `create_linestring`, `create_shape`, `create_circle`, `create_arc`, `list`, `count`, `get`, `move`, `rotate`, `scale`, `erase`, `batch_create` |
+| **`layer`** | Quản lý lớp bản vẽ (Level) | `list`, `create`, `set_active`, `set_display` |
+| **`cell`** | Quản lý Cell & Khối thư viện | `list`, `place`, `drop` |
+| **`annotation`** | Ghi chú & Đo kích thước | `create_text`, `create_dimension_linear`, `create_dimension_aligned`, `find_text`, `replace_text` |
+| **`view`** | Khung nhìn & Chụp ảnh đối soát | `fit_view`, `zoom_window`, `zoom_in`, `zoom_out`, `get_screenshot` *(trả về ImageContent đối soát)* |
+| **`cadastral`** | Chuyên gia Địa chính VN (TT 26/2024 & TT 23/2025) | `auto_workflow` *(giải quyết trọn gói ranh thửa L10, chuyển mục đích L10 nét đứt, lộ giới L50, đánh số mốc, ghi kích thước cạnh, dựng bảng tọa độ VN-2000)*, `analyze`, `draw_table`, `draw_parcel_label` |
+| **`system`** | Quản trị & Thực thi mã nội bộ | `status`, `health`, `execute_keyin`, `execute_python` *(chạy Python an toàn trong server)* |
