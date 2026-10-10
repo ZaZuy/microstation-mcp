@@ -3,10 +3,20 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('d:/3. Task/microstation-mcp/src', 'src')]
 binaries = []
-hiddenimports = ['fastmcp', 'anyio', 'win32com.client', 'win32gui', 'win32ui', 'PIL']
-tmp_ret = collect_all('fastmcp')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+hiddenimports = [
+    'fastmcp', 'mcp', 'anyio', 'win32com.client', 'win32gui', 'win32ui',
+    'win32api', 'pythoncom', 'pywintypes', 'winreg', 'PIL', 'PIL.Image',
+    'shapely', 'shapely.ops', 'shapely.geometry', 'pyclipper'
+]
 
+for pkg in ['fastmcp', 'mcp', 'anyio', 'pydantic', 'shapely', 'pyclipper', 'PIL']:
+    try:
+        tmp_ret = collect_all(pkg)
+        datas += tmp_ret[0]
+        binaries += tmp_ret[1]
+        hiddenimports += tmp_ret[2]
+    except Exception:
+        pass
 
 a = Analysis(
     ['d:/3. Task/microstation-mcp/src/main.py'],
@@ -17,7 +27,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['torch', 'tensorflow', 'scipy', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )
