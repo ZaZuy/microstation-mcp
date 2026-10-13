@@ -90,15 +90,16 @@ def scan_cadastral_entities() -> Dict[str, Any]:
             is_l50 = ("50" in lvl_name or "lo gioi" in lvl_name or "lgqh" in lvl_name or lvl_num == 50)
 
             style = getattr(el, "LineStyle", None)
-            style_num = 0
+            style_name = "0"
             if style is not None:
-                style_num = getattr(style, "Style", 0)
+                style_name = str(getattr(style, "Name", getattr(style, "Style", 0)))
+            is_solid = (style_name == "0" or style_name == "0 - { Sol }")
 
             if is_l10:
                 if el_type in (4, 6, 14) or getattr(el, "IsClosedElement", False):
                     poly = _get_polygon_from_element(el)
                     if poly and len(poly) >= 3:
-                        if style_num == 0:
+                        if is_solid:
                             solid_shapes_l10.append(poly)
                         else:
                             dashed_shapes_l10.append(poly)
@@ -108,7 +109,7 @@ def scan_cadastral_entities() -> Dict[str, Any]:
                     if p1 and p2:
                         seg = [[round(float(p1.X), 4), round(float(p1.Y), 4)],
                                [round(float(p2.X), 4), round(float(p2.Y), 4)]]
-                        if style_num == 0:
+                        if is_solid:
                             solid_lines_l10.append(seg)
                         else:
                             dashed_lines_l10.append(seg)
